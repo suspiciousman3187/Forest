@@ -1,0 +1,31 @@
+# --- build output -------------------------------------------------------
+bin/
+obj/
+*.user
+
+# --- native Trees build artifacts (sources + build.bat are tracked) -----
+trees/*.obj
+trees/*.exp
+trees/*.lib
+trees/*.dll
+trees/*.exe
+trees/Trees.new.dll
+
+# --- runtime per-PID / log files (generated at launch) ------------------
+trees/slot*.txt
+trees/status*.txt
+trees/cred*.bin
+trees/totp*.bin
+trees/nohide*.txt
+trees/trees.log
+trees/trees.old.log
+
+# --- third-party / large trees (not Forest's own code) ------------------
+Ashita-v4beta-4.16-final/
+AshitaV3/
+POL-Proxy-main/
+
+# --- misc ---------------------------------------------------------------
+*~
+*.bak
+Thumbs.db
