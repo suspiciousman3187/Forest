@@ -25,13 +25,13 @@ That's why I created Forest. I had a few specific goals I wanted to improve off 
 
 ## Features
 
-- **Fully automated programmatic login** — Automated login that doesn't require the PlayOnline window to be focused. Login status can be seen through Forest's UI.
-- **Native Multibox Support** — Launch many accounts at once or staggered with a delay.
-- **Windower & Ashita v4** — Support for both by picking the launcher associated with an account.
-- **Secure Credentials** — Passwords stored encrypted at rest with Windows
+- **Fully automated programmatic login** - Automated login that doesn't require the PlayOnline window to be focused. Login status can be seen through Forest's UI.
+- **Native Multibox Support** - Launch many accounts at once or staggered with a delay.
+- **Windower & Ashita v4** - Support for both by picking the launcher associated with an account.
+- **Secure Credentials** - Passwords stored encrypted at rest with Windows
   DPAPI and only ever decrypted in-process.
-- **POL Proxy Built-In** — POL Proxy is built in and hosts file is automatically managed by Forest (requires admin permissions).
-- Per-account profiles with command line args to Windower/Ashita, drag-to-reorder accounts, launch/terminate multiple accounts simultaneously, live status, etc.
+- **POL Proxy Built-In** - POL Proxy is built in and hosts file is automatically managed by Forest (requires admin permissions).
+- **And more...** - Per-account profiles with command line args to Windower/Ashita, drag-to-reorder accounts, launch/terminate multiple accounts simultaneously, live status, etc.
 
 ## Project Structure
 
