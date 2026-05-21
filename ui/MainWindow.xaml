@@ -1,0 +1,408 @@
+<mah:MetroWindow x:Class="Forest.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mah="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+        xmlns:ui="clr-namespace:Forest.UI"
+        Title="Forest" Height="900" Width="660"
+        MinWidth="520" MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/Assets/app256.png"
+        ShowIconOnTitleBar="False"
+        TitleCharacterCasing="Upper"
+        GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+        Background="{StaticResource WinBg}">
+  <mah:MetroWindow.Resources>
+    <ui:StatusColorConverter x:Key="StatusColor"/>
+    <ui:StatusRunningConverter x:Key="IsRunning"/>
+    <ui:HasPidConverter x:Key="HasPid"/>
+    <ui:CanTerminateStatusConverter x:Key="CanTerminate"/>
+    <ui:NotCheckedToVisibilityConverter x:Key="NotChecked"/>
+    <ui:LauncherToIconConverter x:Key="LauncherIcon"/>
+    <ImageBrush x:Key="Bg" Stretch="UniformToFill">
+      <ImageBrush.ImageSource>
+        <BitmapImage UriSource="pack://application:,,,/Assets/background.jpg"
+                     DecodePixelWidth="1280" CacheOption="OnLoad"/>
+      </ImageBrush.ImageSource>
+    </ImageBrush>
+  </mah:MetroWindow.Resources>
+
+  <Grid>
+
+    <Rectangle Fill="{StaticResource Bg}"/>
+    <Rectangle Fill="{StaticResource Scrim}"/>
+
+    <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+            BorderBrush="{StaticResource CardBorder}" BorderThickness="0,0,0,1">
+      <StackPanel Orientation="Horizontal" Margin="8,0">
+        <RadioButton x:Name="TabAccounts" Style="{StaticResource NavTab}"
+                     Content="HOME" IsChecked="True" GroupName="nav"
+                     Checked="OnTab"/>
+        <RadioButton x:Name="TabSettings" Style="{StaticResource NavTab}"
+                     Content="SETTINGS" GroupName="nav" Checked="OnTab"/>
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" Margin="10,8,10,4">
+
+      <Border x:Name="PanelAccounts" Style="{StaticResource Card}" Padding="0">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+
+          <Grid Grid.Row="0" Margin="16,14,16,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+              <Rectangle Width="3" Height="14"
+                         Fill="{DynamicResource MahApps.Brushes.Accent}"
+                         VerticalAlignment="Center"/>
+              <TextBlock Text="ACCOUNTS" Style="{StaticResource SectionTitle}"/>
+            </StackPanel>
+            <Button Content="+  ADD NEW ACCOUNT" Style="{StaticResource AccentButton}"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Margin="0" Click="OnAdd"/>
+          </Grid>
+
+          <DataGrid x:Name="Grid" Grid.Row="1" Margin="6,0,6,0"
+                    PreviewMouseLeftButtonDown="OnGridDragStart"
+                    PreviewMouseMove="OnGridDragMove"
+                    PreviewMouseLeftButtonUp="OnGridDragEnd"
+                    LostMouseCapture="OnGridDragCancel">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Width="42"
+                                      HeaderStyle="{StaticResource CheckHeader}">
+                <DataGridTemplateColumn.HeaderTemplate>
+                  <DataTemplate>
+                    <CheckBox x:Name="SelAll"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              ToolTip="Select / clear all"
+                              Checked="OnSelectAll" Unchecked="OnSelectAll"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.HeaderTemplate>
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                              IsChecked="{Binding Selected, Mode=TwoWay,
+                                          UpdateSourceTrigger=PropertyChanged}"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTextColumn Header="NAME"    Binding="{Binding Profile}"
+                                  Width="*" MinWidth="105"
+                                  ElementStyle="{StaticResource CellText}"/>
+              <DataGridTemplateColumn Header="TYPE" Width="52"
+                                      HeaderStyle="{StaticResource CheckHeader}">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Image Source="{Binding Launcher, Converter={StaticResource LauncherIcon}}"
+                           Width="22" Height="22"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           ToolTip="{Binding Launcher}"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTextColumn Header="PROFILE" Binding="{Binding Windower}"
+                                  Width="Auto" MinWidth="85"
+                                  ElementStyle="{StaticResource CellText}"/>
+              <DataGridTextColumn Header="SLOT"    Binding="{Binding Slot}"
+                                  Width="55" MinWidth="45"
+                                  ElementStyle="{StaticResource CellText}"/>
+              <DataGridTemplateColumn Header="STATUS" Width="Auto"
+                                      HeaderStyle="{StaticResource CheckHeader}">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Border CornerRadius="9" Padding="9,2" Margin="12,0,12,0"
+                            MinWidth="150"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Background="{Binding Status, Converter={StaticResource StatusColor}}">
+                      <TextBlock Text="{Binding Status}" Foreground="White"
+                                 HorizontalAlignment="Center"
+                                 FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="MANAGE" Width="108">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" Margin="0,0,6,0">
+                      <Button Style="{StaticResource RowAction}"
+                              Content="&#xE70F;" ToolTip="Edit account"
+                              Margin="0,0,10,0" Click="OnEditRow"/>
+                      <Button Style="{StaticResource RowAction}"
+                              Content="&#xE74D;" ToolTip="Remove account"
+                              Margin="0,0,10,0" Click="OnRemoveRow"/>
+                      <Button Style="{StaticResource RowActionKill}"
+                              Content="&#x2715;"
+                              ToolTip="Terminate this account"
+                              Click="OnTerminateRow"
+                              IsEnabled="{Binding Status,
+                                          Converter={StaticResource CanTerminate}}"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+
+          <Border Grid.Row="2" Background="{StaticResource HeaderBg}"
+                  BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0"
+                  CornerRadius="0,0,6,6">
+            <Grid Margin="14,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Button x:Name="TerminateBtn" Grid.Column="0"
+                      Content="TERMINATE" IsEnabled="False" Margin="0"
+                      HorizontalAlignment="Stretch"
+                      Style="{StaticResource BarDanger}" Click="OnTerminateSelected"
+                      ToolTip="Select one or more RUNNING accounts to terminate"/>
+              <Button x:Name="LaunchBtn" Grid.Column="2"
+                      Content="LAUNCH" IsEnabled="False" Margin="0"
+                      HorizontalAlignment="Stretch"
+                      Style="{StaticResource BarAccent}" Click="OnLaunchSelected"
+                      ToolTip="Select one or more idle accounts to launch"/>
+            </Grid>
+          </Border>
+        </Grid>
+      </Border>
+
+      <Border x:Name="PanelSettings" Style="{StaticResource Card}"
+              Visibility="Collapsed">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+         <StackPanel Grid.Row="0">
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <Rectangle Width="3" Height="14"
+                       Fill="{DynamicResource MahApps.Brushes.Accent}"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text="LAUNCHER SETTINGS" Style="{StaticResource SectionTitle}"/>
+          </StackPanel>
+
+          <TextBlock Text="TREES DIRECTORY  (Trees.dll + waitinject.exe)"
+                     Style="{StaticResource FieldLabel}"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="TreesBox" Grid.Column="0" TextChanged="OnSettingTextChanged"/>
+            <Button Grid.Column="1" Content="Browse" Style="{StaticResource GhostButton}"
+                    Margin="8,0,0,0" Click="BrowseDir"/>
+          </Grid>
+
+          <TextBlock Text="WINDOWER EXECUTABLE" Style="{StaticResource FieldLabel}"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="WinExeBox" Grid.Column="0" TextChanged="OnSettingTextChanged"/>
+            <Button Grid.Column="1" Content="Browse" Style="{StaticResource GhostButton}"
+                    Margin="8,0,0,0" Click="BrowseExe"/>
+          </Grid>
+
+          <TextBlock Text="ASHITA-CLI EXECUTABLE  (ashita-cli.exe — optional)"
+                     Style="{StaticResource FieldLabel}"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="AshitaExeBox" Grid.Column="0" TextChanged="OnSettingTextChanged"/>
+            <Button Grid.Column="1" Content="Browse" Style="{StaticResource GhostButton}"
+                    Margin="8,0,0,0" Click="BrowseAshita"/>
+          </Grid>
+
+          <TextBlock Text="DEFAULT LAUNCHER  (accounts set to “Default” use this)"
+                     Style="{StaticResource FieldLabel}"/>
+          <ComboBox x:Name="DefaultLauncherBox" SelectionChanged="OnSettingSelectionChanged">
+            <ComboBoxItem Content="Windower"/>
+            <ComboBoxItem Content="Ashita v4"/>
+          </ComboBox>
+
+          <Grid Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="20"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+              <TextBlock Text="MULTI LAUNCH STYLE" Style="{StaticResource FieldLabel}"/>
+              <ComboBox x:Name="DelayBox" SelectionChanged="OnSettingSelectionChanged">
+                <ComboBoxItem Content="Regular"/>
+                <ComboBoxItem Content="Faster (Experimental)"/>
+              </ComboBox>
+              <TextBlock Foreground="{StaticResource SubText}" FontSize="11"
+                         TextWrapping="Wrap" Margin="0,4,0,0"
+                         Text="Lowers delay between starting new clients, may cause some login processes to hang.">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding SelectedIndex, ElementName=DelayBox}" Value="1">
+                        <Setter Property="Visibility" Value="Visible"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Text="LOGIN TIMEOUT (s)" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="TimeoutBox" TextChanged="OnSettingTextChanged"/>
+            </StackPanel>
+          </Grid>
+
+          <CheckBox x:Name="HideWndBox" Margin="0,16,0,0"
+                    Foreground="{StaticResource Text}"
+                    Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                    Content="Hide PlayOnline Window During Login"/>
+          <TextBlock Text="Forest will hide the PlayOnline window through the entire login process."
+                     Foreground="{StaticResource SubText}" FontSize="11"
+                     TextWrapping="Wrap" Margin="22,2,0,0"/>
+
+          <StackPanel Margin="22,8,0,0"
+                      Visibility="{Binding IsChecked, ElementName=HideWndBox,
+                                   Converter={StaticResource NotChecked}}">
+            <CheckBox x:Name="NoAutoLoginBox"
+                      Foreground="{StaticResource Text}"
+                      Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                      Content="Disable Auto-Login"/>
+            <TextBlock Text="Don't automate the account login process when launching PlayOnline."
+                       Foreground="{StaticResource SubText}" FontSize="11"
+                       TextWrapping="Wrap" Margin="22,2,0,0"/>
+          </StackPanel>
+
+          <CheckBox x:Name="PolProxyBox" Margin="0,14,0,0"
+                    Foreground="{StaticResource Text}"
+                    Checked="OnPolProxyToggled" Unchecked="OnPolProxyToggled"
+                    Content="Bypass PlayOnline Network With POL Proxy"/>
+          <TextBlock Text="Skip the network request to PlayOnline servers. Forest automatically manages hosts file (requires admin permission)."
+                     Foreground="{StaticResource SubText}" FontSize="11"
+                     TextWrapping="Wrap" Margin="22,2,0,0"/>
+
+          <CheckBox x:Name="StartupLaunchBox" Margin="0,14,0,0"
+                    Foreground="{StaticResource Text}"
+                    Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                    Content="Launch Selected Accounts On Startup"/>
+          <TextBlock Text="When Forest opens, automatically launch every account whose checkbox is ticked."
+                     Foreground="{StaticResource SubText}" FontSize="11"
+                     TextWrapping="Wrap" Margin="22,2,0,0"/>
+
+          <Button Content="CLEAN UP STALE POL PROCESSES"
+                  Style="{StaticResource UtilityButton}"
+                  HorizontalAlignment="Stretch" Margin="0,20,0,0"
+                  FontSize="13" Padding="0,11" Click="OnCleanStalePol"/>
+
+         </StackPanel>
+
+          <Border Grid.Row="1" VerticalAlignment="Bottom"
+                  BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0"
+                  Margin="0,24,0,0" Padding="0,16,0,0">
+           <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                       FontSize="13" TextWrapping="Wrap"
+                       Foreground="{StaticResource SubText}">
+              <Run Text="Credits:  AutoPOL "/>
+              <Hyperlink NavigateUri="https://github.com/jaku/FFXI-autoPOL"
+                         RequestNavigate="OnNav"
+                         Foreground="{DynamicResource MahApps.Brushes.Accent}">github.com/jaku/FFXI-autoPOL</Hyperlink>
+              <LineBreak/>
+              <Run Text="          POL Proxy "/>
+              <Hyperlink NavigateUri="https://github.com/jaku/POL-Proxy"
+                         RequestNavigate="OnNav"
+                         Foreground="{DynamicResource MahApps.Brushes.Accent}">github.com/jaku/POL-Proxy</Hyperlink>
+            </TextBlock>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                        VerticalAlignment="Center">
+              <Button Cursor="Hand" Padding="20,11" Margin="0,0,10,0"
+                      Click="OnOpenGitHub"
+                      ToolTip="https://github.com/suspiciousman3187"
+                      FocusVisualStyle="{x:Null}">
+                <Button.Template>
+                  <ControlTemplate TargetType="Button">
+                    <Border x:Name="gb" CornerRadius="5" Background="#2D333B"
+                            BorderBrush="#454D58" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                      <StackPanel Orientation="Horizontal">
+                        <Path Width="18" Height="18" Stretch="Uniform"
+                              VerticalAlignment="Center" Fill="White"
+                              Data="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                        <TextBlock Text="GitHub" Margin="10,0,0,0"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="White" VerticalAlignment="Center"/>
+                      </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="gb" Property="Background" Value="#3A424C"/>
+                        <Setter TargetName="gb" Property="BorderBrush" Value="#5A6470"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </Button.Template>
+              </Button>
+
+              <Button Cursor="Hand" Padding="20,11" Click="OnOpenKofi"
+                      ToolTip="https://ko-fi.com/lesserevil"
+                      FocusVisualStyle="{x:Null}">
+                <Button.Template>
+                  <ControlTemplate TargetType="Button">
+                    <Border x:Name="kb" CornerRadius="5" Background="#FF5E5B"
+                            Padding="{TemplateBinding Padding}">
+                      <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Feed Me" FontSize="14"
+                                   FontWeight="SemiBold" Foreground="White"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="&#x2665;" FontSize="16" Margin="8,0,0,0"
+                                   Foreground="White" VerticalAlignment="Center"/>
+                      </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="kb" Property="Background" Value="#E64946"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </Button.Template>
+              </Button>
+            </StackPanel>
+           </Grid>
+          </Border>
+         </Grid>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="2" Background="{StaticResource HeaderBg}"
+            BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0"
+            Padding="14,6">
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Ellipse x:Name="ProxyDot" Width="9" Height="9"
+                 Fill="{StaticResource DimGray}" VerticalAlignment="Center"/>
+        <TextBlock x:Name="ProxyStatus" Text="POL Proxy: off"
+                   Foreground="{StaticResource SubText}" FontSize="12"
+                   Margin="8,0,0,0" VerticalAlignment="Center"/>
+      </StackPanel>
+    </Border>
+    </Grid>
+  </Grid>
+</mah:MetroWindow>

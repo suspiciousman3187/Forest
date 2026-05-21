@@ -1,0 +1,132 @@
+<mah:MetroWindow x:Class="Forest.UI.AccountWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mah="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+        Title="ACCOUNT" Height="660" Width="470"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Icon="pack://application:,,,/Assets/app256.png"
+        ShowIconOnTitleBar="False"
+        TitleCharacterCasing="Upper" ShowMinButton="False" ShowMaxRestoreButton="False"
+        GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+        Background="{StaticResource WinBg}">
+  <Border Style="{StaticResource Card}" Margin="16">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+     <StackPanel Grid.Row="0">
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+        <Rectangle Width="3" Height="14"
+                   Fill="{DynamicResource MahApps.Brushes.Accent}" VerticalAlignment="Center"/>
+        <TextBlock x:Name="HeaderText" Text="ADD NEW ACCOUNT"
+                   Style="{StaticResource SectionTitle}"/>
+      </StackPanel>
+
+      <TextBlock Text="ACCOUNT NAME" Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="ProfileBox"/>
+
+      <TextBlock Text="SE PASSWORD  (edit: blank = keep existing)"
+                 Style="{StaticResource FieldLabel}"/>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <PasswordBox x:Name="PwBox" Grid.Column="0"/>
+        <TextBox x:Name="PwReveal" Grid.Column="0" Visibility="Collapsed"/>
+        <ToggleButton x:Name="PwEye" Grid.Column="1" Margin="8,0,0,0"
+                      Cursor="Hand" FocusVisualStyle="{x:Null}"
+                      ToolTip="Show / hide password"
+                      Click="OnTogglePw">
+          <ToggleButton.Template>
+            <ControlTemplate TargetType="ToggleButton">
+              <Border x:Name="eb" CornerRadius="4" Background="#7F141418"
+                      BorderBrush="#33FFFFFF" BorderThickness="1"
+                      Padding="14,0" MinWidth="62">
+                <TextBlock x:Name="eg" Text="SHOW"
+                           FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource SubText}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="eg" Property="Text" Value="HIDE"/>
+                  <Setter TargetName="eg" Property="Foreground"
+                          Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                  <Setter TargetName="eb" Property="BorderBrush"
+                          Value="{DynamicResource MahApps.Brushes.Accent}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="eb" Property="Background" Value="#7F1E1E24"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </ToggleButton.Template>
+        </ToggleButton>
+      </Grid>
+
+      <TextBlock Text="TOTP SECRET  (NOT IMPLEMENTED YET)"
+                 Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="TotpBox" IsEnabled="False" Opacity="0.5"/>
+      <TextBlock Text="One-time-password (Security Token) auto-entry isn't supported yet — coming in a later update."
+                 Foreground="{StaticResource SubText}" FontSize="11"
+                 TextWrapping="Wrap" Margin="0,2,0,0"/>
+
+      <TextBlock Text="LAUNCHER" Style="{StaticResource FieldLabel}"/>
+      <ComboBox x:Name="LauncherBox" SelectionChanged="OnLauncherChanged">
+        <ComboBoxItem Content="Default"/>
+        <ComboBoxItem Content="Windower"/>
+        <ComboBoxItem Content="Ashita v4"/>
+      </ComboBox>
+
+      <Grid Margin="0,4,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/><ColumnDefinition Width="14"/>
+          <ColumnDefinition Width="120"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock x:Name="ProfileLbl" Text="WINDOWER PROFILE"
+                     Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="WindowerBox"/>
+        </StackPanel>
+        <StackPanel Grid.Column="2">
+          <TextBlock Text="POL SLOT" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="SlotBox"/>
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="COMMAND ARGS  (blank = use launcher default; {profile} = profile / boot .ini)"
+                 Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="ArgsBox"/>
+
+      <Border x:Name="ErrBanner" Visibility="Collapsed" Margin="0,12,0,0"
+              Background="#33EF4444" BorderBrush="#80EF4444" BorderThickness="1"
+              CornerRadius="5" Padding="10,8">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="⚠" Foreground="#FFFF8A8A" FontSize="14"
+                     FontWeight="Bold" VerticalAlignment="Center"/>
+          <TextBlock x:Name="ErrText" Foreground="#FFFFC9C9" TextWrapping="Wrap"
+                     Margin="8,0,0,0" FontSize="12" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+     </StackPanel>
+
+      <Grid Grid.Row="1" VerticalAlignment="Bottom" Margin="0,18,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="12"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button Grid.Column="0" Content="Cancel" Click="OnCancel"
+                Style="{StaticResource GhostButton}"
+                HorizontalAlignment="Stretch" Margin="0"
+                FontSize="15" Padding="0,14"/>
+        <Button Grid.Column="2" Content="Save" Click="OnSave"
+                Style="{StaticResource AccentButton}"
+                HorizontalAlignment="Stretch" Margin="0"
+                FontSize="15" Padding="0,14"/>
+      </Grid>
+    </Grid>
+  </Border>
+</mah:MetroWindow>

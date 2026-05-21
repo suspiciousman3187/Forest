@@ -1,0 +1,53 @@
+<mah:MetroWindow x:Class="Forest.UI.ConfirmWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mah="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+        Title="CONFIRM" MinHeight="220" Width="430" SizeToContent="Height"
+        MaxHeight="640"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Icon="pack://application:,,,/Assets/app256.png"
+        ShowIconOnTitleBar="False"
+        TitleCharacterCasing="Upper" ShowMinButton="False" ShowMaxRestoreButton="False"
+        GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+        Background="{StaticResource WinBg}">
+  <Border Style="{StaticResource Card}" Margin="16">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <StackPanel Grid.Row="0">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+          <Rectangle Width="3" Height="14"
+                     Fill="{DynamicResource MahApps.Brushes.Accent}"
+                     VerticalAlignment="Center"/>
+          <TextBlock x:Name="HeaderText" Text="CONFIRM"
+                     Style="{StaticResource SectionTitle}"/>
+        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      MaxHeight="420" Margin="2,4,2,0">
+          <TextBlock x:Name="MsgText" TextWrapping="Wrap" FontSize="14"
+                     Foreground="{StaticResource Text}"/>
+        </ScrollViewer>
+      </StackPanel>
+
+      <Grid Grid.Row="1" VerticalAlignment="Bottom" Margin="0,18,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="12"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="CancelBtn" Grid.Column="0" Content="Cancel"
+                Click="OnCancel" Style="{StaticResource GhostButton}"
+                HorizontalAlignment="Stretch" Margin="0"
+                FontSize="15" Padding="0,13"/>
+        <Button x:Name="ConfirmBtn" Grid.Column="2" Content="Confirm"
+                Click="OnConfirm" Style="{StaticResource AccentButton}"
+                HorizontalAlignment="Stretch" Margin="0"
+                FontSize="15" Padding="0,13"/>
+      </Grid>
+    </Grid>
+  </Border>
+</mah:MetroWindow>
