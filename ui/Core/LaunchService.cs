@@ -84,6 +84,9 @@ public sealed class LaunchService
         psi.ArgumentList.Add(marker ?? "");
         psi.ArgumentList.Add(noAuto ? "nologin" : "");
         psi.ArgumentList.Add(!noAuto && haveTotp ? totpSrc : "");
+        psi.ArgumentList.Add(_cfg.AutoLoginCharacter ? "autoenter" : "noautoenter");
+        psi.ArgumentList.Add(acct.IngameSlot.ToString());
+        psi.ArgumentList.Add((_cfg.AutoLoginSettleSeconds * 1000).ToString());
 
         var wi = Process.Start(psi)
                  ?? throw new InvalidOperationException("waitinject failed to start.");

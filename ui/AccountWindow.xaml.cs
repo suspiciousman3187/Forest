@@ -22,6 +22,7 @@ public partial class AccountWindow : MetroWindow
                 var a = CredentialStore.Load().GetAccount(editProfile);
                 WindowerBox.Text = a.WindowerProfile ?? "";
                 SlotBox.Text = a.PolSlot == 0 ? "" : a.PolSlot.ToString();
+                IngameSlotBox.Text = a.IngameSlot == 0 ? "" : a.IngameSlot.ToString();
                 ArgsBox.Text = a.LaunchArgs ?? "";
                 LauncherBox.SelectedIndex =
                     string.Equals(a.Launcher, "Ashita", StringComparison.OrdinalIgnoreCase) ? 2
@@ -87,6 +88,7 @@ public partial class AccountWindow : MetroWindow
         var args = string.IsNullOrWhiteSpace(ArgsBox.Text) ? null : ArgsBox.Text.Trim();
         var launcher = SelectedLauncher();
         int slot = int.TryParse(SlotBox.Text.Trim(), out var sv) ? sv : 0;
+        int ingameSlot = int.TryParse(IngameSlotBox.Text.Trim(), out var gv) ? gv : 0;
 
         if (string.IsNullOrWhiteSpace(profile)) { Err("Profile name is required."); return; }
 
@@ -128,6 +130,9 @@ public partial class AccountWindow : MetroWindow
             }
         }
 
+        if (ingameSlot != 0 && (ingameSlot < 1 || ingameSlot > 16))
+        { Err("In-game character slot must be between 1 and 16."); return; }
+
         try
         {
 
@@ -140,17 +145,17 @@ public partial class AccountWindow : MetroWindow
             if (isNew)
             {
                 if (string.IsNullOrEmpty(pw)) { Err("Password is required for a new account."); return; }
-                store.Set(profile, pw, totp, windower, slot, args, launcher);
+                store.Set(profile, pw, totp, windower, slot, args, launcher, ingameSlot);
             }
             else if (!string.IsNullOrEmpty(pw))
             {
 
-                store.Set(profile, pw, totp, windower, slot, args, launcher);
+                store.Set(profile, pw, totp, windower, slot, args, launcher, ingameSlot);
             }
             else
             {
 
-                store.SetMeta(profile, windower, slot, args, launcher);
+                store.SetMeta(profile, windower, slot, args, launcher, ingameSlot);
             }
             DialogResult = true;
         }

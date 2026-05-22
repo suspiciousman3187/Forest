@@ -33,6 +33,10 @@ public sealed class Config
 
     public bool LaunchSelectedOnStartup { get; set; } = false;
 
+    public bool AutoLoginCharacter { get; set; } = true;
+
+    public int AutoLoginSettleSeconds { get; set; } = 5;
+
     public List<string> SelectedAccounts { get; set; } = new();
 
     public List<string> AccountOrder { get; set; } = new();

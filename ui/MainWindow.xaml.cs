@@ -832,6 +832,9 @@ public partial class MainWindow : MetroWindow
             NoAutoLoginBox.IsChecked = c.DisableAutoLogin;
             PolProxyBox.IsChecked = c.UsePolProxy;
             StartupLaunchBox.IsChecked = c.LaunchSelectedOnStartup;
+            AutoEnterBox.IsChecked = c.AutoLoginCharacter;
+            AutoLoginSpeedBox.SelectedIndex =
+                Math.Clamp(c.AutoLoginSettleSeconds, 3, 10) - 3;
 
             DelayBox.SelectedIndex = c.FastSequential ? 1 : 0;
         }
@@ -858,6 +861,9 @@ public partial class MainWindow : MetroWindow
         c.DisableAutoLogin = NoAutoLoginBox.IsChecked == true;
         c.UsePolProxy = PolProxyBox.IsChecked == true;
         c.LaunchSelectedOnStartup = StartupLaunchBox.IsChecked == true;
+        c.AutoLoginCharacter = AutoEnterBox.IsChecked == true;
+        c.AutoLoginSettleSeconds = AutoLoginSpeedBox.SelectedIndex >= 0
+            ? AutoLoginSpeedBox.SelectedIndex + 3 : 5;
 
         c.ParallelLaunch = false;
         c.FastSequential = DelayBox.SelectedIndex == 1;

@@ -13,11 +13,12 @@ public sealed class CredentialStore
         string? WindowerProfile = null,
         int PolSlot = 0,
         string? LaunchArgs = null,
-        string? Launcher = null);
+        string? Launcher = null,
+        int IngameSlot = 0);
 
     public sealed record Account(
         string Name, string? WindowerProfile, int PolSlot, string? LaunchArgs,
-        string? Launcher);
+        string? Launcher, int IngameSlot);
 
     private static readonly string StorePath =
         Path.Combine(AppData.Dir, "creds.dat");
@@ -41,7 +42,8 @@ public sealed class CredentialStore
 
     public void Set(string profile, string password, string? totpSecret,
                     string? windowerProfile = null, int polSlot = 0,
-                    string? launchArgs = null, string? launcher = null)
+                    string? launchArgs = null, string? launcher = null,
+                    int ingameSlot = 0)
     {
 
         _entries.TryGetValue(profile, out var prev);
@@ -51,12 +53,14 @@ public sealed class CredentialStore
             windowerProfile ?? prev?.WindowerProfile,
             polSlot != 0 ? polSlot : (prev?.PolSlot ?? 0),
             launchArgs ?? prev?.LaunchArgs,
-            launcher ?? prev?.Launcher);
+            launcher ?? prev?.Launcher,
+            ingameSlot != 0 ? ingameSlot : (prev?.IngameSlot ?? 0));
         Save();
     }
 
     public void SetMeta(string profile, string? windowerProfile, int polSlot,
-                        string? launchArgs = null, string? launcher = null)
+                        string? launchArgs = null, string? launcher = null,
+                        int ingameSlot = 0)
     {
         var e = Require(profile);
         _entries[profile] = e with
@@ -65,6 +69,7 @@ public sealed class CredentialStore
             PolSlot = polSlot != 0 ? polSlot : e.PolSlot,
             LaunchArgs = launchArgs ?? e.LaunchArgs,
             Launcher = launcher ?? e.Launcher,
+            IngameSlot = ingameSlot != 0 ? ingameSlot : e.IngameSlot,
         };
         Save();
     }
@@ -72,13 +77,13 @@ public sealed class CredentialStore
     public IReadOnlyList<Account> Accounts() =>
         _entries.Select(kv => new Account(
             kv.Key, kv.Value.WindowerProfile, kv.Value.PolSlot,
-            kv.Value.LaunchArgs, kv.Value.Launcher)).ToList();
+            kv.Value.LaunchArgs, kv.Value.Launcher, kv.Value.IngameSlot)).ToList();
 
     public Account GetAccount(string profile)
     {
         var e = Require(profile);
         return new Account(profile, e.WindowerProfile, e.PolSlot, e.LaunchArgs,
-                           e.Launcher);
+                           e.Launcher, e.IngameSlot);
     }
 
     public bool Remove(string profile)

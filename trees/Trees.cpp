@@ -727,6 +727,9 @@ static HWND PolWnd()
 static volatile HWND g_fakeFocusHwnd = nullptr;
 static volatile bool g_hideEnabled = true;
 static volatile bool g_antiThrottle = true;
+static volatile bool g_autoEnter = false;
+static volatile int  g_charSlot = 1;
+static volatile int  g_settleMs = 5000;
 static volatile bool g_winEvLateActive = false;
 
 struct FindAllCtx { DWORD pid; HWND arr[16]; int n; };
@@ -1300,21 +1303,154 @@ static void TeardownHooks()
         "(focus IAT kept active for POL-viewer anti-throttle)", cbtN, ddN);
 }
 
-struct GameWndCtx { DWORD pid; bool found; };
+struct GameWndCtx { DWORD pid; HWND hwnd; };
 static BOOL CALLBACK EnumGameWnd(HWND h, LPARAM lp)
 {
     auto* c = (GameWndCtx*)lp;
     DWORD wpid = 0; GetWindowThreadProcessId(h, &wpid);
     if (wpid != c->pid) return TRUE;
     char cls[64] = {0}; GetClassNameA(h, cls, sizeof(cls));
-    if (strcmp(cls, "FFXiClass") == 0) { c->found = true; return FALSE; }
+    if (strcmp(cls, "FFXiClass") == 0) { c->hwnd = h; return FALSE; }
     return TRUE;
 }
-static bool GameWindowUp()
+static HWND FindGameWindow()
 {
-    GameWndCtx c{ GetCurrentProcessId(), false };
+    GameWndCtx c{ GetCurrentProcessId(), nullptr };
     EnumWindows(EnumGameWnd, (LPARAM)&c);
-    return c.found;
+    return c.hwnd;
+}
+
+static const GUID kIID_IDirectInput8A =
+    { 0xBF798030, 0x483A, 0x4DA2, { 0xAA,0x99,0x5D,0x64,0xED,0x36,0x97,0x00 } };
+static const GUID kIID_IDirectInput8W =
+    { 0xBF798031, 0x483A, 0x4DA2, { 0xAA,0x99,0x5D,0x64,0xED,0x36,0x97,0x00 } };
+static const GUID kGUID_SysKeyboard =
+    { 0x6F1D2B61, 0xD5A0, 0x11CF, { 0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00 } };
+
+typedef HRESULT (WINAPI *DI8Create_t)(HINSTANCE, DWORD, const GUID&, void**, void*);
+typedef HRESULT (STDMETHODCALLTYPE *DI_CreateDevice_t)(void*, const GUID&, void**, void*);
+typedef HRESULT (STDMETHODCALLTYPE *DI_GetDeviceState_t)(void*, DWORD, void*);
+
+static DI_GetDeviceState_t g_realGetDevState = nullptr;
+static volatile bool g_injectActive = false;
+static volatile BYTE g_injectKey = 0x1C;
+static volatile LONG g_injectOneShot = 0;
+
+struct DiPatch { uintptr_t* vt; uintptr_t orig; };
+static DiPatch g_diPatches[2] = {};
+static int g_diPatchN = 0;
+
+static HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(void* self, DWORD cb, void* data)
+{
+    DI_GetDeviceState_t real = g_realGetDevState;
+    HRESULT hr = real ? real(self, cb, data) : E_FAIL;
+    if (SUCCEEDED(hr) && data && cb >= 256) {
+        if (g_injectActive)
+            ((BYTE*)data)[g_injectKey] = (BYTE)0x80;
+        else if (InterlockedExchange(&g_injectOneShot, 0))
+            ((BYTE*)data)[g_injectKey] = (BYTE)0x80;
+    }
+    return hr;
+}
+
+static void PatchKeyboardGetState(const GUID& iid)
+{
+    HMODULE di = GetModuleHandleA("dinput8.dll");
+    if (!di) return;
+    auto create = (DI8Create_t)GetProcAddress(di, "DirectInput8Create");
+    if (!create) return;
+    void* pDI = nullptr;
+    if (FAILED(create(GetModuleHandleA(nullptr), 0x0800, iid, &pDI, nullptr)) || !pDI)
+        return;
+    void** diVtbl = *(void***)pDI;
+    auto createDev = (DI_CreateDevice_t)diVtbl[3];
+    void* pDev = nullptr;
+    if (SUCCEEDED(createDev(pDI, kGUID_SysKeyboard, &pDev, nullptr)) && pDev) {
+        __try {
+            uintptr_t* vt = *(uintptr_t**)pDev;
+            uintptr_t orig = vt[9];
+            if (!g_realGetDevState)
+                g_realGetDevState = (DI_GetDeviceState_t)orig;
+            if (orig != (uintptr_t)&Hook_GetDeviceState && g_diPatchN < 2) {
+                DWORD op;
+                if (VirtualProtect(&vt[9], sizeof(uintptr_t), PAGE_READWRITE, &op)) {
+                    vt[9] = (uintptr_t)&Hook_GetDeviceState;
+                    DWORD t; VirtualProtect(&vt[9], sizeof(uintptr_t), op, &t);
+                    g_diPatches[g_diPatchN].vt = vt;
+                    g_diPatches[g_diPatchN].orig = orig;
+                    g_diPatchN++;
+                    Log("auto-enter: keyboard GetDeviceState patched (vtbl=0x%p)", (void*)vt);
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+}
+
+static void RestoreKeyboardGetState()
+{
+    for (int i = 0; i < g_diPatchN; ++i) {
+        __try {
+            DWORD op;
+            if (VirtualProtect(&g_diPatches[i].vt[9], sizeof(uintptr_t),
+                               PAGE_READWRITE, &op)) {
+                g_diPatches[i].vt[9] = g_diPatches[i].orig;
+                DWORD t;
+                VirtualProtect(&g_diPatches[i].vt[9], sizeof(uintptr_t), op, &t);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    g_diPatchN = 0;
+}
+
+static void PulseKey(BYTE dik, int holdMs)
+{
+    g_injectKey = dik;
+    g_injectActive = true;
+    Sleep(holdMs);
+    g_injectActive = false;
+}
+
+static void TapKey(BYTE dik)
+{
+    g_injectKey = dik;
+    InterlockedExchange(&g_injectOneShot, 1);
+}
+
+static DWORD WINAPI AutoEnterThread(LPVOID)
+{
+    for (int i = 0; i < 100 && !GetModuleHandleA("dinput8.dll"); ++i) Sleep(100);
+    Sleep(1000);
+    PatchKeyboardGetState(kIID_IDirectInput8A);
+    PatchKeyboardGetState(kIID_IDirectInput8W);
+    if (!g_realGetDevState) {
+        Log("auto-enter: DInput keyboard not patchable; aborting.");
+        return 0;
+    }
+    int slot = g_charSlot < 1 ? 1 : g_charSlot;
+    int settle = g_settleMs > 0 ? g_settleMs : 5000;
+    Log("auto-enter: target slot %d, %dms settles (DirectInput injection)",
+        slot, settle);
+    Sleep(settle);
+    PulseKey(0x1C, 300); Sleep(settle);
+    Log("auto-enter: ENTER 1 (Notice -> Title)");
+    PulseKey(0x1C, 300); Sleep(settle);
+    Log("auto-enter: ENTER 2 (Title -> Character Select); %d DOWN(s) to navigate",
+        slot - 1);
+    for (int i = 1; i < slot; ++i) {
+        TapKey(0xD0); Sleep(settle);
+        Log("auto-enter: DOWN %d/%d", i, slot - 1);
+    }
+    Sleep(settle);
+    PulseKey(0x1C, 300); Sleep(settle);
+    Log("auto-enter: ENTER 3 (select character)");
+    PulseKey(0x1C, 300); Sleep(settle);
+    Log("auto-enter: ENTER 4 (confirmation)");
+    PulseKey(0x1C, 300);
+    Log("auto-enter: ENTER 5 (final confirmation -> login)");
+    RestoreKeyboardGetState();
+    Log("auto-enter: sequence complete; GetDeviceState unhooked "
+        "(zero in-game footprint).");
+    return 0;
 }
 
 static DWORD WINAPI FakeFocusInstallThread(LPVOID)
@@ -1345,10 +1481,21 @@ static DWORD WINAPI FakeFocusInstallThread(LPVOID)
                 prevTotal = total;
             }
         }
-        if (GameWindowUp() || GetTickCount64() - t0 > 300000) {
+        HWND game = FindGameWindow();
+        if (game) {
             g_antiThrottle = false;
-            Log("fake-focus: anti-throttle OFF (game window up or timeout); "
+            Log("fake-focus: anti-throttle OFF (game window up); "
                 "in-game uses real focus.");
+            if (g_autoEnter)
+                CloseHandle(CreateThread(nullptr, 0, AutoEnterThread,
+                                         (LPVOID)game, 0, nullptr));
+            else
+                Log("auto-enter: disabled by config; skipping boot ENTERs.");
+            break;
+        }
+        if (GetTickCount64() - t0 > 300000) {
+            g_antiThrottle = false;
+            Log("fake-focus: anti-throttle OFF (timeout, no game window).");
             break;
         }
         Sleep(armed ? 1000 : 50);
@@ -1484,6 +1631,23 @@ static bool ReadNoHide()
     PidPaths(p, fb, MAX_PATH, "nohide", "txt");
     return GetFileAttributesA(p)  != INVALID_FILE_ATTRIBUTES
         || GetFileAttributesA(fb) != INVALID_FILE_ATTRIBUTES;
+}
+
+static int ReadAutoEnter(int* settleMs)
+{
+    char p[MAX_PATH], fb[MAX_PATH];
+    PidPaths(p, fb, MAX_PATH, "autoenter", "txt");
+    FILE* f = nullptr;
+    if (fopen_s(&f, p, "r") != 0 || !f) {
+        if (fopen_s(&f, fb, "r") != 0 || !f) return 0;
+    }
+    int slot = 0, ms = 5000;
+    int n = fscanf_s(f, "%d %d", &slot, &ms);
+    fclose(f);
+    if (n < 1) return 0;
+    if (n < 2 || ms <= 0) ms = 5000;
+    if (settleMs) *settleMs = ms;
+    return slot;
 }
 
 enum { B_MEMBERLIST = 1<<0, B_SUBCMD = 1<<10, B_SOFTKBD = 1<<19 };
@@ -1954,6 +2118,11 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
             if (GetFileAttributesA(p) != INVALID_FILE_ATTRIBUTES ||
                 GetFileAttributesA(fb) != INVALID_FILE_ATTRIBUTES)
                 g_hideEnabled = false;
+        }
+        {
+            int ms = 5000;
+            int s = ReadAutoEnter(&ms);
+            if (s > 0) { g_autoEnter = true; g_charSlot = s; g_settleMs = ms; }
         }
         InstallFakeFocusAllModules(hMod);
         InstallCbtHooks(hMod);

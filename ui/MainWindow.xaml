@@ -18,6 +18,7 @@
     <ui:CanTerminateStatusConverter x:Key="CanTerminate"/>
     <ui:NotCheckedToVisibilityConverter x:Key="NotChecked"/>
     <ui:LauncherToIconConverter x:Key="LauncherIcon"/>
+    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     <ImageBrush x:Key="Bg" Stretch="UniformToFill">
       <ImageBrush.ImageSource>
         <BitmapImage UriSource="pack://application:,,,/Assets/background.jpg"
@@ -301,6 +302,37 @@
           <TextBlock Text="When Forest opens, automatically launch every account whose checkbox is ticked."
                      Foreground="{StaticResource SubText}" FontSize="11"
                      TextWrapping="Wrap" Margin="22,2,0,0"/>
+
+          <CheckBox x:Name="AutoEnterBox" Margin="0,14,0,0"
+                    Foreground="{StaticResource Text}"
+                    Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                    Content="Log In Character Automatically When FFXI Starts"/>
+          <TextBlock Text="Forest will attempt to press Enter key several times to get past the initial screens (Notice, Title, Character Select) when the game starts."
+                     Foreground="{StaticResource SubText}" FontSize="11"
+                     TextWrapping="Wrap" Margin="22,2,0,0"/>
+
+          <StackPanel Margin="22,8,0,0"
+                      Visibility="{Binding IsChecked, ElementName=AutoEnterBox,
+                                   Converter={StaticResource BoolToVis}}">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="Speed:" Foreground="{StaticResource SubText}"
+                         FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <ComboBox x:Name="AutoLoginSpeedBox" Width="150"
+                        SelectionChanged="OnSettingSelectionChanged">
+                <ComboBoxItem Content="3s"/>
+                <ComboBoxItem Content="4s"/>
+                <ComboBoxItem Content="5s (Recommended)"/>
+                <ComboBoxItem Content="6s"/>
+                <ComboBoxItem Content="7s"/>
+                <ComboBoxItem Content="8s"/>
+                <ComboBoxItem Content="9s"/>
+                <ComboBoxItem Content="10s"/>
+              </ComboBox>
+            </StackPanel>
+            <TextBlock Text="How long Forest waits between each keypress. Lower is faster but more likely to miss a screen on a slow load; raise it if any screens get skipped."
+                       Foreground="{StaticResource SubText}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+          </StackPanel>
 
           <Button Content="CLEAN UP STALE POL PROCESSES"
                   Style="{StaticResource UtilityButton}"

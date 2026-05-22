@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <string>
 #include <vector>
@@ -220,7 +221,8 @@ static bool Inject(DWORD pid, const char* dllFull)
 
 static void WritePerPid(const char* dllDir, DWORD pid,
                         const char* slot, const char* credSrc, bool noHide,
-                        const char* totpSrc)
+                        const char* totpSrc, bool autoEnter, int ingameSlot,
+                        int settleMs)
 {
     char p[MAX_PATH];
     if (slot && *slot) {
@@ -249,13 +251,22 @@ static void WritePerPid(const char* dllDir, DWORD pid,
         if (fopen_s(&f, p, "w") == 0 && f) { fputs("1", f); fclose(f);
             printf("wrote %s (POL window will stay visible)\n", p); }
     }
+    if (autoEnter) {
+        int cs = ingameSlot >= 1 ? ingameSlot : 1;
+        int ms = settleMs >= 1 ? settleMs : 5000;
+        sprintf_s(p, "%s\\autoenter_%lu.txt", dllDir, pid);
+        FILE* f = nullptr;
+        if (fopen_s(&f, p, "w") == 0 && f) { fprintf(f, "%d %d", cs, ms); fclose(f);
+            printf("wrote %s (auto-login, slot %d, %dms settle)\n", p, cs, ms); }
+    }
 }
 
 int main(int argc, char** argv)
 {
     if (argc < 2) {
         printf("usage: waitinject <Trees.dll> [slot] [credSrc] "
-               "[hide|nohide] [marker] [nologin] [totpSrc]\n");
+               "[hide|nohide] [marker] [nologin] [totpSrc] "
+               "[autoenter|noautoenter] [ingameSlot] [settleMs]\n");
         return 1;
     }
     char dll[MAX_PATH];
@@ -269,6 +280,9 @@ int main(int argc, char** argv)
     bool noLogin = argc > 6 && _stricmp(argv[6], "nologin") == 0;
 
     const char* totpSrc = (argc > 7 && argv[7][0]) ? argv[7] : nullptr;
+    bool autoEnter = argc > 8 && _stricmp(argv[8], "autoenter") == 0;
+    int ingameSlot = argc > 9 ? atoi(argv[9]) : 0;
+    int settleMs = argc > 10 ? atoi(argv[10]) : 5000;
     char dllDir[MAX_PATH]; strcpy_s(dllDir, dll);
     if (char* s = strrchr(dllDir, '\\')) *s = 0;
 
@@ -311,7 +325,7 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    WritePerPid(dllDir, target, slot, credSrc, noHide, totpSrc);
+    WritePerPid(dllDir, target, slot, credSrc, noHide, totpSrc, autoEnter, ingameSlot, settleMs);
     Sleep(50);
     bool ok = Inject(target, dll);
     printf(ok ? "INJECT_OK\n" : "INJECT_FAIL\n");

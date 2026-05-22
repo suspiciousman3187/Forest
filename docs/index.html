@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forest - Automated PlayOnline Login for FFXI</title>
+<link rel="icon" type="image/x-icon" href="icon.ico">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <a href="index.html" class="brand"><img src="brand-logo.png" alt="" class="brand-icon">FOREST</a>
+    <nav>
+      <a href="https://github.com/suspiciousman3187/Forest" class="gh" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>Fully automated PlayOnline login, built for multiboxing!</h1>
+    <p class="lede">
+      Forest logs one or many Final Fantasy XI accounts into PlayOnline programmatically &mdash;
+      no window focus needed, and no PlayOnline UI to click through. For Windower &amp; Ashita v4.
+    </p>
+    <div class="hero-actions">
+      <a href="#download" class="btn-primary">Download &rarr;</a>
+      <a href="https://github.com/suspiciousman3187/Forest" class="btn-ghost" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+    <img src="screenshot.png" alt="Forest UI" class="shot">
+    <p class="shot-cap">The main Forest window with live status for every account.</p>
+  </div>
+</section>
+
+<main class="container">
+
+<section id="features">
+  <h2>Features</h2>
+  <div class="features">
+    <div class="card">
+      <h3>Hands-Free Login</h3>
+      <p>Logs accounts in without the PlayOnline window needing focus.</p>
+    </div>
+    <div class="card">
+      <h3>Native Multibox Support</h3>
+      <p>Launch multiple accounts automatically with one button.</p>
+    </div>
+    <div class="card">
+      <h3>Windower &amp; Ashita v4</h3>
+      <p>Pick the launcher per account &mdash; Windower profile or Ashita boot config.</p>
+    </div>
+    <div class="card">
+      <h3>Secure Credentials</h3>
+      <p>Passwords are encrypted at rest with Windows DPAPI and only ever decrypted in-process.</p>
+    </div>
+    <div class="card">
+      <h3>POL Proxy Built-In</h3>
+      <p>Skips the PlayOnline network step and manages the hosts file for you automatically (requires admin).</p>
+    </div>
+    <div class="card">
+      <h3>Auto Character Login</h3>
+      <p>Optionally walks the post-login screens (Notice, Title, Character Select) all the way into the game, to your chosen character slot.</p>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <h2>Getting Started</h2>
+  <ol>
+    <li>Download the latest release below and unzip it anywhere on your PC.</li>
+    <li>Run <code>Forest.exe</code> <strong>as administrator</strong> (DLL injection and POL Proxy require it).</li>
+    <li>Open <strong>Settings</strong> and set your Windower and/or Ashita-cli executable path. Forest auto-detects the bundled <code>trees</code> folder for you.</li>
+    <li>Click <strong>Add New Account</strong> &mdash; enter a name, SE password, PlayOnline member-list slot, and launcher + profile. Optionally set an <strong>in-game character slot</strong>.</li>
+    <li>Tick the accounts you want to login and click <strong>LAUNCH</strong>.</li>
+  </ol>
+  <p class="note">First launch reads your accounts from an encrypted local store; nothing is sent anywhere.</p>
+</section>
+
+<section id="requirements">
+  <h2>Requirements</h2>
+  <ul>
+    <li>Windows 10 / 11.</li>
+    <li><a href="https://dotnet.microsoft.com/download/dotnet/9.0" target="_blank" rel="noopener">.NET 9 Desktop Runtime</a> (the "Run desktop apps" x64 installer).</li>
+    <li>Final Fantasy XI installed.</li>
+    <li><a href="https://www.windower.net/" target="_blank" rel="noopener">Windower</a> and/or Ashita v4 installed.</li>
+    <li>Run <strong>as administrator</strong>.</li>
+  </ul>
+</section>
+
+<section id="download">
+  <h2>Download</h2>
+  <div class="download-card">
+    <p>Grab the latest build from the GitHub releases page, unzip, and run <code>Forest.exe</code> as administrator.</p>
+    <a href="https://github.com/suspiciousman3187/Forest/releases" class="btn-primary" target="_blank" rel="noopener">Latest Release &rarr;</a>
+    <p class="repo-link">Source code: <a href="https://github.com/suspiciousman3187/Forest" target="_blank" rel="noopener">github.com/suspiciousman3187/Forest</a></p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="container">
+    <p>Created by a Man In Black. FINAL FANTASY is a registered trademark of Square Enix Co., Ltd.</p>
+  </div>
+</footer>
+
+</body>
+</html>

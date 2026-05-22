@@ -96,6 +96,10 @@
         </StackPanel>
       </Grid>
 
+      <TextBlock Text="INGAME CHARACTER SLOT  (blank = first character / slot 1)"
+                 Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="IngameSlotBox" HorizontalAlignment="Left" Width="120"/>
+
       <TextBlock Text="COMMAND ARGS  (blank = use launcher default; {profile} = profile / boot .ini)"
                  Style="{StaticResource FieldLabel}"/>
       <TextBox x:Name="ArgsBox"/>
