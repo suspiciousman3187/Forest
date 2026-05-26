@@ -17,6 +17,9 @@ trees/status*.txt
 trees/cred*.bin
 trees/totp*.bin
 trees/nohide*.txt
+trees/autoenter*.txt
+trees/forest_debug.txt
+trees/forest_sendinput.txt
 trees/trees.log
 trees/trees.old.log
 

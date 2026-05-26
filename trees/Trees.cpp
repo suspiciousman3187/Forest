@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <ctime>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 #include "Signatures.h"
 
@@ -42,8 +44,20 @@ static void RotateLogIfHuge()
     MoveFileA(p, old_);
 }
 
+static int g_logEnabled = -1;
 static void Log(const char* fmt, ...)
 {
+    if (g_logEnabled < 0) {
+        char mp[MAX_PATH]; HMODULE self = nullptr;
+        GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&Log), &self);
+        GetModuleFileNameA(self, mp, MAX_PATH);
+        char* slash = strrchr(mp, '\\');
+        if (slash) strcpy_s(slash + 1, MAX_PATH - (DWORD)(slash + 1 - mp), "forest_debug.txt");
+        g_logEnabled = (GetFileAttributesA(mp) != INVALID_FILE_ATTRIBUTES) ? 1 : 0;
+    }
+    if (!g_logEnabled) return;
     char path[MAX_PATH]; LogPath(path, MAX_PATH);
     FILE* f = nullptr;
     if (fopen_s(&f, path, "a") != 0 || !f) return;
@@ -55,6 +69,17 @@ static void Log(const char* fmt, ...)
     va_end(ap);
     fputc('\n', f);
     fclose(f);
+}
+
+static volatile const char* g_uiModuleName = "app.dll";
+static HMODULE FindPolUi()
+{
+    static const char* kNames[] = { "app.dll", "appEU.dll", "appJP.dll" };
+    for (auto n : kNames) {
+        HMODULE h = GetModuleHandleA(n);
+        if (h) { g_uiModuleName = n; return h; }
+    }
+    return nullptr;
 }
 
 static void DllSibling(char* out, DWORD n, const char* leaf)
@@ -367,13 +392,26 @@ static BOOL CALLBACK EnumW(HWND h, LPARAM lp)
     if (wpid != c->pid || !IsWindowVisible(h)) return TRUE;
     char t[64]; GetWindowTextA(h, t, sizeof(t));
     if (strstr(t, "PlayOnline")) { c->hwnd = h; return FALSE; }
+    if (!c->hwnd) {
+        char cls[64] = {0}; GetClassNameA(h, cls, sizeof(cls));
+        if (strcmp(cls, "FFXiClass") != 0) {
+            LONG style = GetWindowLongA(h, GWL_STYLE);
+            if (!(style & WS_CHILD) && ((style & WS_CAPTION) || (style & WS_BORDER)) && !GetWindow(h, GW_OWNER)) {
+                RECT r{};
+                if (GetWindowRect(h, &r) && (r.right - r.left) >= 200 && (r.bottom - r.top) >= 100)
+                    c->hwnd = h;
+            }
+        }
+    }
     return TRUE;
 }
 static uintptr_t       g_bp[3]    = { 0, 0, 0 };
 static uintptr_t       g_uiBase   = 0;
 static PVOID           g_veh      = nullptr;
+static uintptr_t       g_fnSelRow = 0;
 
 static volatile uint32_t g_memberList = 0;
+static volatile uint32_t g_rowVtbl    = 0;
 
 #if DIAG_CAPTURE_FIRE
 #define FIRE_BP_RING 64
@@ -494,28 +532,31 @@ static void FlushFireBpRing(uint32_t base)
 
 #define VEH_CAP_RING 32
 static volatile uint32_t g_selRowRing[VEH_CAP_RING] = { 0 };
+static volatile uint32_t g_selRowArg[VEH_CAP_RING] = { 0 };
 static volatile LONG     g_selRowWr   = 0;
 static volatile LONG     g_selRowRd   = 0;
-static void VehCapture(uint32_t ecx)
+static void VehCapture(uint32_t ecx, uint32_t rowArg)
 {
     LONG i = InterlockedIncrement(&g_selRowWr) - 1;
     g_selRowRing[i % VEH_CAP_RING] = ecx;
+    g_selRowArg[i % VEH_CAP_RING] = rowArg;
 }
 static void FlushSelRowRing(uint32_t base)
 {
     LONG wr = g_selRowWr;
     while (g_selRowRd < wr) {
         uint32_t ecx = g_selRowRing[g_selRowRd % VEH_CAP_RING];
+        uint32_t row = g_selRowArg[g_selRowRd % VEH_CAP_RING];
         ++g_selRowRd;
         if (!ecx) continue;
         uint32_t vt = 0;
         __try { vt = *(uint32_t*)ecx; } __except (EXCEPTION_EXECUTE_HANDLER) {}
         if (vt >= base && vt <= base + 0x600000)
-            Log("VEH-selRow: ecx=0x%08X vt-rva=0x%X%s",
-                ecx, vt - base,
+            Log("VEH-selRow: ecx=0x%08X row=%d vt-rva=0x%X%s",
+                ecx, (int)row, vt - base,
                 (vt == base + 0x33219C) ? "  <-- matches row-container vt 0x33219C" : "");
         else
-            Log("VEH-selRow: ecx=0x%08X vt=0x%08X (not in app.dll)", ecx, vt);
+            Log("VEH-selRow: ecx=0x%08X row=%d vt=0x%08X (not in app.dll)", ecx, (int)row, vt);
     }
 }
 
@@ -576,12 +617,16 @@ static LONG CALLBACK Veh(EXCEPTION_POINTERS* ep)
     if (slot == 2) {
         uint32_t self = cx->Ecx;
         if (self) {
-            VehCapture(self);
+            uint32_t rowArg = 0;
+            __try { rowArg = *(uint32_t*)(cx->Esp + 4); }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            VehCapture(self, rowArg);
             uint32_t base = (uint32_t)g_uiBase;
             uint32_t vt = 0;
             __try { vt = *(uint32_t*)self; } __except (EXCEPTION_EXECUTE_HANDLER) {}
-            if (vt == base + 0x33219C && g_memberList == 0) {
-                g_memberList = self;
+            if (vt >= base && vt <= base + 0x600000) {
+                if (g_rowVtbl == 0) g_rowVtbl = vt;
+                if (vt == g_rowVtbl && g_memberList == 0) g_memberList = self;
             }
         }
         cx->Dr6 = 0;
@@ -1340,6 +1385,8 @@ struct DiPatch { uintptr_t* vt; uintptr_t orig; };
 static DiPatch g_diPatches[2] = {};
 static int g_diPatchN = 0;
 
+struct MenuGlobals { uintptr_t menu, lic, lob, sel, yes, sidx, mainsys; };
+
 static HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(void* self, DWORD cb, void* data)
 {
     DI_GetDeviceState_t real = g_realGetDevState;
@@ -1402,18 +1449,250 @@ static void RestoreKeyboardGetState()
     g_diPatchN = 0;
 }
 
+static volatile int g_injMethod = 0;   // 0 = DInput vtable hook, 1 = SendInput
+
+static void SendDik(BYTE dik, bool keyup)
+{
+    WORD sc; BOOL ext = FALSE;
+    switch (dik) {
+        case 0x1C: sc = 0x1C;             break;   // Enter
+        case 0xD0: sc = 0x50; ext = TRUE; break;   // Down (extended arrow)
+        case 0xC8: sc = 0x48; ext = TRUE; break;   // Up   (extended arrow)
+        default:   sc = dik;              break;
+    }
+    INPUT in = {};
+    in.type = INPUT_KEYBOARD;
+    in.ki.wScan = sc;
+    in.ki.dwFlags = KEYEVENTF_SCANCODE
+                  | (ext ? KEYEVENTF_EXTENDEDKEY : 0)
+                  | (keyup ? KEYEVENTF_KEYUP : 0);
+    SendInput(1, &in, sizeof(INPUT));
+}
+
+static void EnsureGameFocus()
+{
+    HWND h = FindGameWindow();
+    if (h) { SetForegroundWindow(h); BringWindowToTop(h); }
+}
+
 static void PulseKey(BYTE dik, int holdMs)
 {
-    g_injectKey = dik;
-    g_injectActive = true;
-    Sleep(holdMs);
-    g_injectActive = false;
+    if (g_injMethod == 1) {
+        EnsureGameFocus();
+        SendDik(dik, false);
+        Sleep(holdMs);
+        SendDik(dik, true);
+    } else {
+        g_injectKey = dik;
+        g_injectActive = true;
+        Sleep(holdMs);
+        g_injectActive = false;
+    }
 }
 
 static void TapKey(BYTE dik)
 {
-    g_injectKey = dik;
-    InterlockedExchange(&g_injectOneShot, 1);
+    if (g_injMethod == 1) {
+        EnsureGameFocus();
+        SendDik(dik, false);
+        Sleep(30);
+        SendDik(dik, true);
+    } else {
+        g_injectKey = dik;
+        InterlockedExchange(&g_injectOneShot, 1);
+    }
+}
+
+static uint8_t* FindPatLE(HMODULE mod, const char* hexPat, const char* mask)
+{
+    char buf[512]; int bp = 0;
+    for (int i = 0; mask[i]; ++i) {
+        if (bp && bp < (int)sizeof(buf) - 2) buf[bp++] = ' ';
+        if (mask[i] == 'x') { buf[bp++] = hexPat[i*2]; buf[bp++] = hexPat[i*2+1]; }
+        else buf[bp++] = '?';
+    }
+    buf[bp] = 0;
+    return ScanModule(mod, buf);
+}
+
+static uintptr_t ResolveGlobalLE(HMODULE mod, const char* hexPat, const char* mask, int off)
+{
+    uint8_t* m = FindPatLE(mod, hexPat, mask);
+    if (!m) return 0;
+    __try { return *(uintptr_t*)(m + off); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+static volatile uintptr_t g_curAddr = 0;
+static volatile uintptr_t g_partyG  = 0;
+
+static int ReadCursorIdx()
+{
+    if (!g_curAddr) return -1;
+    __try { int v = *(int*)g_curAddr; return (v >= 0 && v <= 31) ? v : -1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+
+static bool IsInGameNow()
+{
+    if (!g_partyG) return false;
+    __try { return *(uint32_t*)g_partyG > 0x10000; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool RunBootNav(int target)
+{
+    bool atSelect = false;
+    for (int i = 0; i < 20 && !atSelect; ++i) {
+        if (IsInGameNow()) { Log("auto-enter: in-game before select."); return true; }
+        int c0 = ReadCursorIdx();
+        TapKey(0xD0);
+        Sleep(250);
+        int c1 = ReadCursorIdx();
+        if (c0 >= 0 && c1 >= 0 && c0 != c1) {
+            atSelect = true;
+            Log("auto-enter: char-select detected (cursor %d->%d via Down).", c0, c1);
+            break;
+        }
+        TapKey(0xC8);
+        Sleep(200);
+        PulseKey(0x1C, 150);
+        Sleep(900);
+    }
+
+    if (!atSelect) {
+        Log("auto-enter: char-select not detected; Enter-to-in-game attempt.");
+        for (int i = 0; i < 8 && !IsInGameNow(); ++i) { PulseKey(0x1C, 150); Sleep(1000); }
+        return IsInGameNow();
+    }
+
+    for (int i = 0; i < 24; ++i) {
+        int c = ReadCursorIdx();
+        if (c < 0 || c == target) break;
+        TapKey(c < target ? 0xD0 : 0xC8);
+        Sleep(220);
+    }
+    Log("auto-enter: cursor=%d (target %d); selecting.", ReadCursorIdx(), target);
+    PulseKey(0x1C, 150);
+    Sleep(900);
+
+    for (int i = 0; i < 40 && !IsInGameNow(); ++i) {
+        PulseKey(0x1C, 150);
+        Sleep(1000);
+    }
+    return IsInGameNow();
+}
+
+static uint32_t MenuObj(uintptr_t gAddr)
+{
+    if (!gAddr) return 0;
+    __try { return *(uint32_t*)gAddr; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+static void MenuSet(uint32_t obj, uint32_t off, int v)
+{
+    if (!obj) return;
+    __try { *(int*)(obj + off) = v; }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static bool ReadMenuName(uintptr_t menuGlobal, char* out, uint32_t* focusedOut)
+{
+    if (!menuGlobal) return false;
+    __try {
+        uint32_t root = *(uint32_t*)menuGlobal;
+        if (root < 0x10000 || root > 0x7FFFFFFF) return false;
+        for (int variant = 0; variant < 2; ++variant) {
+            uint32_t b = (variant == 0) ? root : *(uint32_t*)root;
+            if (b < 0x10000 || b > 0x7FFFFFFF) continue;
+            uint32_t f = *(uint32_t*)(b + 0x04);
+            if (f < 0x10000 || f > 0x7FFFFFFF) continue;
+            const char* s = (const char*)(f + 0x46);
+            if (s[0] == 'm' && s[1] == 'e' && s[2] == 'n' && s[3] == 'u') {
+                memcpy(out, s, 16);
+                out[16] = 0;
+                if (focusedOut) *focusedOut = f;
+                return true;
+            }
+        }
+        return false;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool ResolveMenuGlobals(HMODULE ff, MenuGlobals* g)
+{
+    MODULEINFO mi{};
+    if (!GetModuleInformation(GetCurrentProcess(), ff, &mi, sizeof(mi))) return false;
+    uintptr_t base = (uintptr_t)mi.lpBaseOfDll, end = base + mi.SizeOfImage;
+
+    const char* p1 = "895E1C895E14896E18890000000000EB0089000000000068";
+    const char* m1 = "xxxxxxxxxx?????x?x?????x";
+    const char* p2 = "89412C8B1500000000897C2410894230A1";
+    const char* m2 = "xxxxx????xxxxxxxx";
+    const char* p3 = "A1000000008B5108406689424C8B4908668B414C50E8";
+    const char* m3 = "x????xxxxxxxxxxxxxxxxx";
+    const char* pm = "8B480C85C974008B510885D274003B05";
+    const char* mm = "xxxxxx?xxxxxx?xx";
+    const char* pc = "8B0D000000008D04808B848100000000C3";
+    const char* mc = "xx????xxxxxx????x";
+
+    g->menu = ResolveGlobalLE(ff, pm, mm, 0x10);
+    g->lic  = ResolveGlobalLE(ff, p1, m1, 0x0B);
+    g->yes  = ResolveGlobalLE(ff, p1, m1, 0x47);
+    g->lob  = ResolveGlobalLE(ff, p2, m2, 0x05);
+    g->sel  = ResolveGlobalLE(ff, p2, m2, 0x11);
+    g->sidx = ResolveGlobalLE(ff, p3, m3, 0x01);
+    g->mainsys = (uintptr_t)FindPatLE(ff, pc, mc);
+
+    auto inMod = [&](uintptr_t a) { return a >= base && a < end; };
+    Log("auto-enter(menu): menu=0x%08X lic=0x%08X lob=0x%08X sel=0x%08X yes=0x%08X sidx=0x%08X mainsys=0x%08X",
+        (unsigned)g->menu, (unsigned)g->lic, (unsigned)g->lob, (unsigned)g->sel, (unsigned)g->yes, (unsigned)g->sidx, (unsigned)g->mainsys);
+    return inMod(g->menu) && inMod(g->lic) && inMod(g->lob) && inMod(g->sel) && inMod(g->yes);
+}
+
+static int MenuCharCount(uintptr_t mainsys)
+{
+    if (!mainsys) return -1;
+    __try {
+        uint32_t g1  = *(uint32_t*)(mainsys + 0x02);
+        uint32_t off = *(uint32_t*)(mainsys + 0x0C);
+        if (g1 < 0x10000 || !off) return -1;
+        uint32_t arr = *(uint32_t*)g1 + off;
+        if (arr < 0x10000) return -1;
+        int c = (int)*(uint32_t*)(arr - 4);
+        return (c >= 0 && c <= 16) ? c : -1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+
+static bool MenuLogin(int sel, const MenuGlobals& g)
+{
+    char name[17], last[17] = { 0 };
+    int clampedLogged = 0;
+    for (int i = 0; i < 2400; ++i) {
+        if (IsInGameNow()) return true;
+        if (!ReadMenuName(g.menu, name, nullptr)) { Sleep(25); continue; }
+        if (strcmp(name, last)) { Log("auto-enter(menu): screen '%s'", name); strcpy_s(last, sizeof(last), name); }
+
+        if (strstr(name, "ptc8lice")) {
+            uint32_t o = MenuObj(g.lic); MenuSet(o, 0x18, 0); MenuSet(o, 0x1C, 1);
+        } else if (strstr(name, "loby2win")) {
+            uint32_t o = MenuObj(g.lob); MenuSet(o, 0x18, 0); MenuSet(o, 0x1C, 1);
+        } else if (strstr(name, "dbnamese")) {
+            int s = sel, cnt = MenuCharCount(g.mainsys);
+            if (cnt > 0 && s >= cnt) {
+                if (!clampedLogged) { Log("auto-enter(menu): slot idx %d >= char count %d; selecting last (idx %d).", sel, cnt, cnt - 1); clampedLogged = 1; }
+                s = cnt - 1;
+            }
+            uint32_t o = MenuObj(g.sel);
+            MenuSet(g.sidx, 0, s);
+            MenuSet(o, 0x14, s); MenuSet(o, 0x18, s); MenuSet(o, 0x1C, 1);
+        } else if (strstr(name, "ptc6yesn")) {
+            uint32_t o = MenuObj(g.yes); MenuSet(o, 0x14, 0); MenuSet(o, 0x30, 1);
+        }
+        Sleep(25);
+    }
+    return IsInGameNow();
 }
 
 static DWORD WINAPI AutoEnterThread(LPVOID)
@@ -1422,34 +1701,55 @@ static DWORD WINAPI AutoEnterThread(LPVOID)
     Sleep(1000);
     PatchKeyboardGetState(kIID_IDirectInput8A);
     PatchKeyboardGetState(kIID_IDirectInput8W);
-    if (!g_realGetDevState) {
-        Log("auto-enter: DInput keyboard not patchable; aborting.");
-        return 0;
+    bool hookOk = (g_realGetDevState != nullptr);
+
+    char smk[MAX_PATH]; DllSibling(smk, MAX_PATH, "forest_sendinput.txt");
+    bool sendAllowed = (GetFileAttributesA(smk) != INVALID_FILE_ATTRIBUTES);
+
+    HMODULE ff = nullptr;
+    for (int i = 0; i < 200 && !ff; ++i) { ff = GetModuleHandleA("FFXiMain.dll"); if (!ff) Sleep(100); }
+    if (ff) {
+        MODULEINFO mi{}; GetModuleInformation(GetCurrentProcess(), ff, &mi, sizeof(mi));
+        uint8_t* fb = (uint8_t*)mi.lpBaseOfDll;
+        g_partyG  = ResolveGlobalLE(ff, "0FBEC38D0C5256578BF58D0448", "xxxxxxxxxxxxx", 23);
+        g_curAddr = ResolveGlobalLE(ff, "0FBF404C48A3FFFFFFFF8D3C808D0478", "xxxxxx????xxxxxx", 6);
+        uint32_t crva = g_curAddr ? (uint32_t)((uintptr_t)g_curAddr - (uintptr_t)fb) : 0;
+        if (!g_curAddr || crva < 0x34F000 || crva >= 0x9C7000) {
+            Log("auto-enter: cursor sig miss (rva 0x%X); fallback FFXiMain+0x63656C.", crva);
+            g_curAddr = (uintptr_t)fb + 0x63656C;
+        } else {
+            Log("auto-enter: cursor sig -> rva 0x%X%s.", crva,
+                crva == 0x63656C ? " (matches expected)" : " (differs; client patched?)");
+        }
     }
-    int slot = g_charSlot < 1 ? 1 : g_charSlot;
-    int settle = g_settleMs > 0 ? g_settleMs : 5000;
-    Log("auto-enter: target slot %d, %dms settles (DirectInput injection)",
-        slot, settle);
-    Sleep(settle);
-    PulseKey(0x1C, 300); Sleep(settle);
-    Log("auto-enter: ENTER 1 (Notice -> Title)");
-    PulseKey(0x1C, 300); Sleep(settle);
-    Log("auto-enter: ENTER 2 (Title -> Character Select); %d DOWN(s) to navigate",
-        slot - 1);
-    for (int i = 1; i < slot; ++i) {
-        TapKey(0xD0); Sleep(settle);
-        Log("auto-enter: DOWN %d/%d", i, slot - 1);
+    int target = (g_charSlot < 1 ? 1 : g_charSlot) - 1;
+    if (target > 15) target = 15;
+    Log("auto-enter: target slot %d (idx %d); hook=%d cur=0x%08X party=0x%08X",
+        target + 1, target, hookOk ? 1 : 0, (unsigned)g_curAddr, (unsigned)g_partyG);
+    Sleep(1500);
+
+    MenuGlobals mg{};
+    bool menuOk = ff && ResolveMenuGlobals(ff, &mg);
+
+    bool done = false;
+    const char* method = "none";
+
+    if (menuOk) {
+        Log("auto-enter: pure menu-memory login (autologin-style, no keystrokes), target idx %d.", target);
+        done = MenuLogin(target, mg);
+        if (done) method = "menu";
     }
-    Sleep(settle);
-    PulseKey(0x1C, 300); Sleep(settle);
-    Log("auto-enter: ENTER 3 (select character)");
-    PulseKey(0x1C, 300); Sleep(settle);
-    Log("auto-enter: ENTER 4 (confirmation)");
-    PulseKey(0x1C, 300);
-    Log("auto-enter: ENTER 5 (final confirmation -> login)");
-    RestoreKeyboardGetState();
-    Log("auto-enter: sequence complete; GetDeviceState unhooked "
-        "(zero in-game footprint).");
+
+    if (!done && (hookOk || sendAllowed)) {
+        Log("auto-enter: %s; keystroke fallback.",
+            menuOk ? "menu memory did not reach in-game" : "menu signatures unresolved");
+        if (hookOk) { g_injMethod = 0; done = RunBootNav(target); if (done) method = "hook"; }
+        if (!done && sendAllowed) { g_injMethod = 1; done = RunBootNav(target); if (done) method = "sendinput"; }
+    }
+
+    if (hookOk) RestoreKeyboardGetState();
+    Log("auto-enter: complete (in-game=%d, method=%s).",
+        IsInGameNow() ? 1 : 0, method);
     return 0;
 }
 
@@ -1482,10 +1782,11 @@ static DWORD WINAPI FakeFocusInstallThread(LPVOID)
             }
         }
         HWND game = FindGameWindow();
-        if (game) {
+        bool ffxiUp = (GetModuleHandleA("FFXiMain.dll") != nullptr);
+        if (game || ffxiUp) {
             g_antiThrottle = false;
-            Log("fake-focus: anti-throttle OFF (game window up); "
-                "in-game uses real focus.");
+            Log("fake-focus: anti-throttle OFF (game up: FFXiClass=%d FFXiMain=%d); "
+                "in-game uses real focus.", game ? 1 : 0, ffxiUp ? 1 : 0);
             if (g_autoEnter)
                 CloseHandle(CreateThread(nullptr, 0, AutoEnterThread,
                                          (LPVOID)game, 0, nullptr));
@@ -1686,13 +1987,13 @@ static void DoStepAction(int step, uint32_t softkeywin, bool firstTime)
         uint32_t ml = ResolveMemberListInner(base);
         if (!ml) ml = g_memberList;
 
-        if (ml && tgt > 0) __try {
-            if (*(uint32_t*)ml == base + 0x33219C) {
+        if (ml && tgt > 0 && g_fnSelRow && g_rowVtbl) __try {
+            if (*(uint32_t*)ml == g_rowVtbl) {
                 typedef void (__thiscall *SelRowFn)(void*, int, char, int);
-                SelRowFn selRow = (SelRowFn)(base + 0x75102);
+                SelRowFn selRow = (SelRowFn)g_fnSelRow;
                 selRow((void*)ml, tgt - 1, 1, 1);
                 Log("nav: Member List -> select-row slot %d in-proc "
-                    "(inner=0x%08X)%s", tgt, ml,
+                    "(inner=0x%08X vtbl=0x%08X)%s", tgt, ml, g_rowVtbl,
                     firstTime ? "" : " (retry)");
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {   }
@@ -1863,7 +2164,7 @@ static DWORD WINAPI FrameDiscoveryThread(LPVOID)
 {
     HMODULE ui = nullptr;
     for (int i = 0; i < 400; ++i) {
-        ui = GetModuleHandleA(POL_UI_MODULE);
+        ui = FindPolUi();
         if (ui) break;
         Sleep(150);
     }
@@ -1910,14 +2211,14 @@ static DWORD WINAPI StateObserver(LPVOID)
 {
     HMODULE ui = nullptr;
     for (int i = 0; i < 400; ++i) {
-        ui = GetModuleHandleA(POL_UI_MODULE);
+        ui = FindPolUi();
         if (ui) break;
         Sleep(150);
     }
     if (!ui) return 0;
     MODULEINFO mi{}; GetModuleInformation(GetCurrentProcess(), ui, &mi, sizeof(mi));
     uint32_t base = (uint32_t)(uintptr_t)mi.lpBaseOfDll;
-    Log("Navigator: app.dll base=0x%08X (zero-scan: per-frame globals)", base);
+    Log("Navigator: %s base=0x%08X (zero-scan: per-frame globals)", (const char*)g_uiModuleName, base);
 
     static const int NEED[5] = { 5, 4, 14, 3, 3 };
     int  step = 0, stable = 0, prevMask = -1;
@@ -2049,11 +2350,11 @@ static DWORD WINAPI Worker(LPVOID)
 
     HMODULE ui = nullptr;
     for (int i = 0; i < 400; ++i) {
-        ui = GetModuleHandleA(POL_UI_MODULE);
+        ui = FindPolUi();
         if (ui) break;
         Sleep(150);
     }
-    if (!ui) { Log("ERROR: %s never loaded.", POL_UI_MODULE); return 0; }
+    if (!ui) { Log("ERROR: POL UI module (app.dll / appEU.dll) never loaded."); return 0; }
 
     MODULEINFO mi{};
     GetModuleInformation(GetCurrentProcess(), ui, &mi, sizeof(mi));
@@ -2062,7 +2363,7 @@ static DWORD WINAPI Worker(LPVOID)
     uint8_t* hit = ScanModule(ui, SIG_SOFTKEY_HANDLER);
     if (!hit) { Log("FAIL: soft-key handler signature not found."); return 0; }
     Log("soft-key handler @ 0x%08X (%s+0x%X)",
-        (unsigned)(uintptr_t)hit, POL_UI_MODULE, (unsigned)((uintptr_t)hit - base));
+        (unsigned)(uintptr_t)hit, (const char*)g_uiModuleName, (unsigned)((uintptr_t)hit - base));
 
     static const uint8_t okpat[] = { 0x8B, 0xCE, 0x6A, 0x01, 0xE8 };
     uint8_t* ok = nullptr;
@@ -2085,10 +2386,22 @@ static DWORD WINAPI Worker(LPVOID)
         (unsigned)g_fnBfc,   (unsigned)(g_fnBfc - base));
     g_uiBase = base;
 
+    g_fnSelRow = (uintptr_t)ScanModule(ui, SIG_SELECT_ROW);
+    if (g_fnSelRow)
+        Log("select-row @ 0x%08X (%s+0x%X)", (unsigned)g_fnSelRow,
+            (const char*)g_uiModuleName, (unsigned)(g_fnSelRow - base));
+    else {
+        g_fnSelRow = base + 0x75102;
+        Log("WARN: select-row signature not found; fallback %s+0x75102.",
+            (const char*)g_uiModuleName);
+    }
+
     g_veh = AddVectoredExceptionHandler(1, Veh);
-    g_bp[2] = base + 0x75102;
+    g_bp[2] = g_fnSelRow;
     SetHwBp(2, g_bp[2]);
-    Log("member-list select-row capture armed (HW-bp app.dll+0x75102).");
+    Log("member-list select-row capture armed (HW-bp 0x%08X = %s+0x%X).",
+        (unsigned)g_fnSelRow, (const char*)g_uiModuleName,
+        (unsigned)(g_fnSelRow - base));
 
 #if DIAG_CAPTURE_FIRE
     g_bp[0] = base + 0x6B62;

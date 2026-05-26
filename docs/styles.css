@@ -149,7 +149,11 @@ body::before {
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
-    margin-bottom: 34px;
+    margin-bottom: 22px;
+}
+
+.hero-badge {
+    margin: 0 0 30px;
 }
 
 .shot {
@@ -209,6 +213,43 @@ body::before {
 }
 
 .btn-ghost:hover { border-color: var(--accent); color: var(--accent-hi); }
+
+.btn-discord {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    background: #5865F2;
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    padding: 11px 22px;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(88, 101, 242, 0.35);
+    transition: background 120ms, transform 120ms, box-shadow 120ms;
+}
+
+.btn-discord:hover {
+    background: #6c78f5;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 7px 22px rgba(88, 101, 242, 0.5);
+}
+
+.btn-discord svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+.topbar nav a.discord {
+    border: 1px solid #5865F2;
+    color: #c2c8ff;
+    margin-left: 6px;
+}
+
+.topbar nav a.discord:hover {
+    border-color: #6c78f5;
+    color: #fff;
+    background: rgba(88, 101, 242, 0.18);
+}
 
 /* Sections */
 

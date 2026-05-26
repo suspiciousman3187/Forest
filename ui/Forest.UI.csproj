@@ -10,6 +10,7 @@
     <AssemblyName>Forest</AssemblyName>
     <Product>Forest</Product>
     <AssemblyTitle>Forest</AssemblyTitle>
+    <Version>1.2.0</Version>
     <StartupObject>Forest.UI.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
@@ -23,6 +24,14 @@
 
   <ItemGroup>
     <PackageReference Include="MahApps.Metro" Version="2.4.10" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+  </ItemGroup>
+
+  <!-- Bundle the built React UI (webui/dist) next to the exe so WebView2 can
+       serve it via the virtual host. Run `npm run build` in webui first.
+       Content (not a custom copy target) so it ships in publish output too. -->
+  <ItemGroup>
+    <Content Include="webui\dist\**\*" Link="webui\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -6,22 +5,11 @@ namespace Forest.UI;
 
 public partial class App : Application
 {
-    private static readonly string CrashLog =
-        Path.Combine(Path.GetTempPath(), "forest_crash.txt");
-
     private static void Dump(string where, Exception ex)
     {
-        try
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"[{DateTime.Now:u}] {where}");
-            for (Exception? e = ex; e != null; e = e.InnerException)
-                sb.AppendLine($"{e.GetType().FullName}: {e.Message}\n{e.StackTrace}");
-            File.WriteAllText(CrashLog, sb.ToString());
-        }
-        catch {  }
+        Forest.DiagLog.Crash(where, ex);
         MessageBox.Show($"Startup error ({where}):\n\n{ex.Message}\n\n"
-            + $"Details written to:\n{CrashLog}", "Forest",
+            + $"Details written to:\n{Forest.DiagLog.Dir}", "Forest",
             MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
@@ -63,11 +51,11 @@ public partial class App : Application
         base.OnStartup(e);
         try
         {
-            Program.T("App.OnStartup: creating MainWindow");
-            var w = new MainWindow();
-            Program.T("App.OnStartup: MainWindow constructed, Show()");
+            Program.T("App.OnStartup: creating WebHostWindow");
+            var w = new WebHostWindow();
+            Program.T("App.OnStartup: WebHostWindow constructed, Show()");
             w.Show();
-            Program.T("App.OnStartup: MainWindow shown OK");
+            Program.T("App.OnStartup: WebHostWindow shown OK");
         }
         catch (Exception ex)
         {

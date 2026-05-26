@@ -1,0 +1,695 @@
+@import "tailwindcss";
+
+/* ── Design tokens (Tailwind utilities: text-accent, bg-accent, …) ──────────
+   These reference the runtime CSS vars below so a [data-theme] swap recolors
+   every utility at once. */
+@theme {
+  --color-bg:            #0f0f11;
+  --color-accent:        #c44545;
+  --color-accent-hover:  #d65a5a;
+  --color-accent-deep:   #a52c2c;
+  --color-on-accent:     #ffffff; /* text/icons sitting on an accent fill */
+
+  /* Foreground tiers + lines/fills (dark defaults; light themes override). */
+  --color-fg:     #fafafa; /* headings */
+  --color-fg-2:   #e4e4e7; /* body / labels */
+  --color-fg-3:   #a1a1aa; /* secondary */
+  --color-fg-4:   #71717a; /* faint / captions */
+  --color-line:   rgba(255, 255, 255, 0.10);
+  --color-line-2: rgba(255, 255, 255, 0.26);
+  --color-track:  rgba(255, 255, 255, 0.16); /* toggle-off track */
+  --color-field:  rgba(0, 0, 0, 0.22);       /* input / segmented track */
+}
+
+/* ── LesserEvil (default): cool charcoal glass + LE red ─────────────────── */
+:root {
+  --glass-nav:            rgba(18, 18, 21, 0.92);
+  --glass-surface:        rgba(27, 27, 31, 0.86);
+  --glass-surface-raised: rgba(33, 33, 38, 0.90);
+  --glass-surface-hover:  rgba(40, 40, 46, 0.92);
+  --glass-panel:          rgba(23, 23, 27, 0.86);
+  --glass-panel-alt:      rgba(33, 33, 38, 0.82);
+
+  --bg-glow:        rgba(165, 44, 44, 0.20);
+  --bg-grad-top:    #141417;
+  --bg-grad-bottom: #0f0f11;
+
+  --hairline:       rgba(255, 255, 255, 0.10);
+  --color-knob:     #ffffff;
+  --color-slider:     var(--color-accent);
+  --color-scrollbar:  rgba(255, 255, 255, 0.12);
+  --color-nav-active: var(--color-accent);
+  --color-toggle:     var(--color-accent);
+
+  --note-text:   rgb(252 211 77 / 0.90);
+  --note-bg:     rgb(245 158 11 / 0.10);
+  --note-border: rgb(245 158 11 / 0.60);
+
+  --ok-text:     #6ee7b7;
+  --ok-bg:       rgba(6, 78, 59, 0.40);
+  --ok-bg-hover: rgba(6, 78, 59, 0.60);
+  --ok-border:   rgba(16, 185, 129, 0.30);
+}
+
+/* ── Nord — arctic blue-grey ─────────────────────────────────────────────── */
+:root[data-theme="nord"] {
+  --color-bg:           #2e3440;
+  --color-accent:       #88c0d0;
+  --color-accent-hover: #99d1de;
+  --color-accent-deep:  #5e81ac;
+  --color-on-accent:    #2e3440;
+
+  --glass-nav:            rgba(46, 52, 64, 0.94);
+  --glass-surface:        rgba(59, 66, 82, 0.86);
+  --glass-surface-raised: rgba(67, 76, 94, 0.90);
+  --glass-surface-hover:  rgba(76, 86, 106, 0.95);
+  --glass-panel:          rgba(46, 52, 64, 0.88);
+  --glass-panel-alt:      rgba(67, 76, 94, 0.84);
+
+  --bg-glow:        rgba(136, 192, 208, 0.16);
+  --bg-grad-top:    #353c4a;
+  --bg-grad-bottom: #2e3440;
+}
+
+/* ── Tokyo Night — deep indigo, neon blue ────────────────────────────────── */
+:root[data-theme="tokyo"] {
+  --color-bg:           #1a1b26;
+  --color-accent:       #7aa2f7;
+  --color-accent-hover: #8db0f8;
+  --color-accent-deep:  #3d59a1;
+  --color-on-accent:    #1a1b26;
+
+  --glass-nav:            rgba(22, 22, 30, 0.94);
+  --glass-surface:        rgba(36, 40, 59, 0.86);
+  --glass-surface-raised: rgba(47, 51, 77, 0.90);
+  --glass-surface-hover:  rgba(59, 63, 92, 0.95);
+  --glass-panel:          rgba(26, 27, 38, 0.88);
+  --glass-panel-alt:      rgba(47, 51, 77, 0.84);
+
+  --bg-glow:        rgba(122, 162, 247, 0.18);
+  --bg-grad-top:    #1f2030;
+  --bg-grad-bottom: #16161e;
+}
+
+/* ── Catppuccin Mocha — soft pastel mauve ────────────────────────────────── */
+:root[data-theme="mocha"] {
+  --color-bg:           #1e1e2e;
+  --color-accent:       #cba6f7;
+  --color-accent-hover: #d4b8f9;
+  --color-accent-deep:  #b4befe;
+  --color-on-accent:    #1e1e2e;
+
+  --glass-nav:            rgba(24, 24, 37, 0.94);
+  --glass-surface:        rgba(49, 50, 68, 0.86);
+  --glass-surface-raised: rgba(69, 71, 90, 0.90);
+  --glass-surface-hover:  rgba(88, 91, 112, 0.95);
+  --glass-panel:          rgba(30, 30, 46, 0.88);
+  --glass-panel-alt:      rgba(69, 71, 90, 0.84);
+
+  --bg-glow:        rgba(203, 166, 247, 0.18);
+  --bg-grad-top:    #24243a;
+  --bg-grad-bottom: #1e1e2e;
+}
+
+/* ── Dracula — purple, pink & cyan ───────────────────────────────────────── */
+:root[data-theme="dracula"] {
+  --color-bg:           #282a36;
+  --color-accent:       #bd93f9;
+  --color-accent-hover: #caa6fb;
+  --color-accent-deep:  #9d6ff0;
+  --color-on-accent:    #282a36;
+
+  --glass-nav:            rgba(33, 34, 44, 0.94);
+  --glass-surface:        rgba(52, 55, 70, 0.86);
+  --glass-surface-raised: rgba(68, 71, 90, 0.90);
+  --glass-surface-hover:  rgba(86, 89, 115, 0.95);
+  --glass-panel:          rgba(40, 42, 54, 0.88);
+  --glass-panel-alt:      rgba(68, 71, 90, 0.84);
+
+  --bg-glow:        rgba(189, 147, 249, 0.18);
+  --bg-grad-top:    #2e303e;
+  --bg-grad-bottom: #282a36;
+}
+
+/* ── One Dark — Atom slate, calm blue ────────────────────────────────────── */
+:root[data-theme="onedark"] {
+  --color-bg:           #282c34;
+  --color-accent:       #61afef;
+  --color-accent-hover: #74b9f1;
+  --color-accent-deep:  #4d8fcc;
+  --color-on-accent:    #282c34;
+
+  --glass-nav:            rgba(33, 37, 43, 0.94);
+  --glass-surface:        rgba(44, 49, 58, 0.86);
+  --glass-surface-raised: rgba(59, 64, 72, 0.90);
+  --glass-surface-hover:  rgba(75, 82, 99, 0.95);
+  --glass-panel:          rgba(33, 37, 43, 0.88);
+  --glass-panel-alt:      rgba(59, 64, 72, 0.84);
+
+  --bg-glow:        rgba(97, 175, 239, 0.16);
+  --bg-grad-top:    #2f343d;
+  --bg-grad-bottom: #282c34;
+}
+
+/* ── Gruvbox — retro warm amber ──────────────────────────────────────────── */
+:root[data-theme="gruvbox"] {
+  --color-bg:           #282828;
+  --color-accent:       #fe8019;
+  --color-accent-hover: #ff9742;
+  --color-accent-deep:  #d65d0e;
+  --color-on-accent:    #282828;
+
+  --glass-nav:            rgba(29, 32, 33, 0.94);
+  --glass-surface:        rgba(60, 56, 54, 0.86);
+  --glass-surface-raised: rgba(80, 73, 69, 0.90);
+  --glass-surface-hover:  rgba(102, 92, 84, 0.95);
+  --glass-panel:          rgba(40, 40, 40, 0.88);
+  --glass-panel-alt:      rgba(80, 73, 69, 0.84);
+
+  --bg-glow:        rgba(254, 128, 25, 0.16);
+  --bg-grad-top:    #32302f;
+  --bg-grad-bottom: #282828;
+}
+
+/* ── GitHub Dark — clean, neutral, corporate ─────────────────────────────── */
+:root[data-theme="github"] {
+  --color-bg:           #0d1117;
+  --color-accent:       #58a6ff;
+  --color-accent-hover: #6cb0ff;
+  --color-accent-deep:  #1f6feb;
+  --color-on-accent:    #0d1117;
+
+  --glass-nav:            rgba(13, 17, 23, 0.94);
+  --glass-surface:        rgba(22, 27, 34, 0.86);
+  --glass-surface-raised: rgba(33, 38, 45, 0.90);
+  --glass-surface-hover:  rgba(45, 51, 59, 0.95);
+  --glass-panel:          rgba(13, 17, 23, 0.88);
+  --glass-panel-alt:      rgba(33, 38, 45, 0.84);
+
+  --bg-glow:        rgba(88, 166, 255, 0.14);
+  --bg-grad-top:    #11161d;
+  --bg-grad-bottom: #0d1117;
+}
+
+/* ── Rosé Pine — elegant muted rose & iris ───────────────────────────────── */
+:root[data-theme="rosepine"] {
+  --color-bg:           #191724;
+  --color-accent:       #ebbcba;
+  --color-accent-hover: #f0cac8;
+  --color-accent-deep:  #c4a7e7;
+  --color-on-accent:    #191724;
+
+  --glass-nav:            rgba(20, 18, 28, 0.94);
+  --glass-surface:        rgba(31, 29, 46, 0.86);
+  --glass-surface-raised: rgba(38, 35, 58, 0.90);
+  --glass-surface-hover:  rgba(49, 44, 72, 0.95);
+  --glass-panel:          rgba(22, 20, 31, 0.88);
+  --glass-panel-alt:      rgba(38, 35, 58, 0.84);
+
+  --bg-glow:        rgba(235, 188, 186, 0.16);
+  --bg-grad-top:    #1e1b2e;
+  --bg-grad-bottom: #191724;
+}
+
+/* ── Ayu Mirage — warm amber on soft slate ───────────────────────────────── */
+:root[data-theme="ayu"] {
+  --color-bg:           #1f2430;
+  --color-accent:       #ffcc66;
+  --color-accent-hover: #ffd685;
+  --color-accent-deep:  #ffa759;
+  --color-on-accent:    #1f2430;
+
+  --glass-nav:            rgba(24, 29, 40, 0.94);
+  --glass-surface:        rgba(35, 40, 52, 0.86);
+  --glass-surface-raised: rgba(45, 51, 67, 0.90);
+  --glass-surface-hover:  rgba(58, 66, 84, 0.95);
+  --glass-panel:          rgba(25, 30, 42, 0.88);
+  --glass-panel-alt:      rgba(45, 51, 67, 0.84);
+
+  --bg-glow:        rgba(255, 204, 102, 0.16);
+  --bg-grad-top:    #242a38;
+  --bg-grad-bottom: #1f2430;
+}
+
+/* ── Synthwave '84 — retro neon magenta & cyan ───────────────────────────── */
+:root[data-theme="synthwave"] {
+  --color-bg:           #262335;
+  --color-accent:       #ff7edb;
+  --color-accent-hover: #ff9ce4;
+  --color-accent-deep:  #d967d0;
+  --color-on-accent:    #262335;
+
+  --glass-nav:            rgba(28, 24, 40, 0.94);
+  --glass-surface:        rgba(42, 33, 57, 0.86);
+  --glass-surface-raised: rgba(52, 41, 79, 0.90);
+  --glass-surface-hover:  rgba(66, 53, 100, 0.95);
+  --glass-panel:          rgba(30, 26, 43, 0.88);
+  --glass-panel-alt:      rgba(52, 41, 79, 0.84);
+
+  --bg-glow:        rgba(255, 126, 219, 0.20);
+  --bg-grad-top:    #2d2640;
+  --bg-grad-bottom: #241f33;
+}
+
+/* ── Everforest — calm natural green ─────────────────────────────────────── */
+:root[data-theme="everforest"] {
+  --color-bg:           #2d353b;
+  --color-accent:       #a7c080;
+  --color-accent-hover: #b6cc93;
+  --color-accent-deep:  #83c092;
+  --color-on-accent:    #2d353b;
+
+  --glass-nav:            rgba(35, 42, 46, 0.94);
+  --glass-surface:        rgba(52, 63, 68, 0.86);
+  --glass-surface-raised: rgba(61, 72, 77, 0.90);
+  --glass-surface-hover:  rgba(71, 82, 88, 0.95);
+  --glass-panel:          rgba(39, 46, 51, 0.88);
+  --glass-panel-alt:      rgba(61, 72, 77, 0.84);
+
+  --bg-glow:        rgba(167, 192, 128, 0.16);
+  --bg-grad-top:    #333d43;
+  --bg-grad-bottom: #2d353b;
+}
+
+/* ── Oxocarbon — IBM Carbon on true black ────────────────────────────────── */
+:root[data-theme="oxocarbon"] {
+  --color-bg:           #161616;
+  --color-accent:       #33b1ff;
+  --color-accent-hover: #52bdff;
+  --color-accent-deep:  #be95ff;
+  --color-on-accent:    #161616;
+
+  --glass-nav:            rgba(13, 13, 13, 0.94);
+  --glass-surface:        rgba(38, 38, 38, 0.86);
+  --glass-surface-raised: rgba(57, 57, 57, 0.90);
+  --glass-surface-hover:  rgba(82, 82, 82, 0.95);
+  --glass-panel:          rgba(28, 28, 28, 0.88);
+  --glass-panel-alt:      rgba(57, 57, 57, 0.84);
+
+  --bg-glow:        rgba(51, 177, 255, 0.16);
+  --bg-grad-top:    #1c1c1c;
+  --bg-grad-bottom: #161616;
+}
+
+/* ── Cobalt2 — deep blue, electric yellow ────────────────────────────────── */
+:root[data-theme="cobalt"] {
+  --color-bg:           #193549;
+  --color-accent:       #ffc600;
+  --color-accent-hover: #ffd23f;
+  --color-accent-deep:  #ff9d00;
+  --color-on-accent:    #193549;
+
+  --glass-nav:            rgba(18, 33, 46, 0.94);
+  --glass-surface:        rgba(31, 70, 98, 0.86);
+  --glass-surface-raised: rgba(39, 83, 111, 0.90);
+  --glass-surface-hover:  rgba(47, 100, 136, 0.95);
+  --glass-panel:          rgba(18, 39, 56, 0.88);
+  --glass-panel-alt:      rgba(39, 83, 111, 0.84);
+
+  --bg-glow:        rgba(255, 198, 0, 0.16);
+  --bg-grad-top:    #1d3d54;
+  --bg-grad-bottom: #193549;
+}
+
+/* ── Kanagawa — Japanese ink-wash blue ───────────────────────────────────── */
+:root[data-theme="kanagawa"] {
+  --color-bg:           #1f1f28;
+  --color-accent:       #7e9cd8;
+  --color-accent-hover: #95aee0;
+  --color-accent-deep:  #957fb8;
+  --color-on-accent:    #1f1f28;
+
+  --glass-nav:            rgba(20, 20, 26, 0.94);
+  --glass-surface:        rgba(42, 42, 55, 0.86);
+  --glass-surface-raised: rgba(54, 54, 70, 0.90);
+  --glass-surface-hover:  rgba(68, 68, 90, 0.95);
+  --glass-panel:          rgba(22, 22, 29, 0.88);
+  --glass-panel-alt:      rgba(54, 54, 70, 0.84);
+
+  --bg-glow:        rgba(126, 156, 216, 0.16);
+  --bg-grad-top:    #25252f;
+  --bg-grad-bottom: #1f1f28;
+}
+
+/* ── Rosé Pine Moon — softer rose on twilight ────────────────────────────── */
+:root[data-theme="moon"] {
+  --color-bg:           #232136;
+  --color-accent:       #ea9a97;
+  --color-accent-hover: #f0aead;
+  --color-accent-deep:  #c4a7e7;
+  --color-on-accent:    #232136;
+  --color-fg:   #e0def4;
+  --color-fg-2: #cdcbe8;
+  --color-fg-3: #908caa;
+  --color-fg-4: #6e6a86;
+
+  --glass-nav:            rgba(30, 28, 46, 0.94);
+  --glass-surface:        rgba(42, 39, 63, 0.86);
+  --glass-surface-raised: rgba(57, 53, 82, 0.90);
+  --glass-surface-hover:  rgba(68, 63, 98, 0.95);
+  --glass-panel:          rgba(35, 33, 54, 0.88);
+  --glass-panel-alt:      rgba(57, 53, 82, 0.84);
+
+  --bg-glow:        rgba(234, 154, 151, 0.16);
+  --bg-grad-top:    #2a273f;
+  --bg-grad-bottom: #232136;
+}
+
+/* ── Material Palenight — soft muted purple ──────────────────────────────── */
+:root[data-theme="palenight"] {
+  --color-bg:           #292d3e;
+  --color-accent:       #c792ea;
+  --color-accent-hover: #d3a6ef;
+  --color-accent-deep:  #82aaff;
+  --color-on-accent:    #292d3e;
+  --color-fg:   #eeffff;
+  --color-fg-2: #c5cae0;
+  --color-fg-3: #a6accd;
+  --color-fg-4: #717caa;
+
+  --glass-nav:            rgba(32, 35, 48, 0.94);
+  --glass-surface:        rgba(50, 55, 77, 0.86);
+  --glass-surface-raised: rgba(60, 65, 90, 0.90);
+  --glass-surface-hover:  rgba(68, 66, 103, 0.95);
+  --glass-panel:          rgba(38, 42, 58, 0.88);
+  --glass-panel-alt:      rgba(60, 65, 90, 0.84);
+
+  --bg-glow:        rgba(199, 146, 234, 0.18);
+  --bg-grad-top:    #2f3346;
+  --bg-grad-bottom: #292d3e;
+}
+
+/* ── Nightfox — muted slate blue ─────────────────────────────────────────── */
+:root[data-theme="nightfox"] {
+  --color-bg:           #192330;
+  --color-accent:       #719cd6;
+  --color-accent-hover: #86abdc;
+  --color-accent-deep:  #9d79d6;
+  --color-on-accent:    #192330;
+  --color-fg:   #cdcecf;
+  --color-fg-2: #aeafb0;
+  --color-fg-3: #738091;
+  --color-fg-4: #5a6a7d;
+
+  --glass-nav:            rgba(19, 28, 38, 0.94);
+  --glass-surface:        rgba(33, 46, 63, 0.86);
+  --glass-surface-raised: rgba(41, 57, 79, 0.90);
+  --glass-surface-hover:  rgba(43, 59, 81, 0.95);
+  --glass-panel:          rgba(22, 33, 45, 0.88);
+  --glass-panel-alt:      rgba(41, 57, 79, 0.84);
+
+  --bg-glow:        rgba(113, 156, 214, 0.16);
+  --bg-grad-top:    #1d2a39;
+  --bg-grad-bottom: #192330;
+}
+
+/* ════ LIGHT THEMES ══════════════════════════════════════════════════════
+   These flip the foreground tiers to dark ink and the lines/fills to
+   black-on-light so every tokenized component stays legible. */
+
+/* ── Meadow — glassy light, green accents, dimmed wallpaper ──────────────── */
+:root[data-theme="meadow"] {
+  --color-bg:           rgb(154, 166, 124);
+  --color-accent:       rgb(146, 158, 104);
+  --color-accent-hover: rgb(164, 176, 124);
+  --color-accent-deep:  rgb(118, 134, 80);
+  --color-on-accent:    rgb(36, 44, 26);
+  --color-fg:   #1d2a22;
+  --color-fg-2: rgb(34, 40, 28);
+  --color-fg-3: rgba(36, 50, 26, 0.85);
+  --color-fg-4: rgb(43, 79, 43);
+  --color-line:   rgb(66, 76, 48);
+  --color-line-2: rgba(29, 50, 38, 0.30);
+  --color-track:  rgb(90, 124, 101);
+  --color-field:  rgba(255, 255, 255, 0.40);
+  --color-knob:       rgb(32, 65, 32);
+  --color-toggle:     rgb(146, 166, 100);
+  --color-slider:     rgb(146, 162, 104);
+  --color-nav-active: rgb(104, 126, 74);
+  --color-scrollbar:  rgba(140, 156, 112, 0.40);
+
+  --glass-nav:            rgba(66, 78, 60, 0.48);
+  --glass-surface:        rgba(78, 90, 68, 0.50);
+  --glass-surface-raised: rgba(232, 238, 220, 0.82);
+  --glass-surface-hover:  rgba(222, 230, 206, 0.90);
+  --glass-panel:          rgba(150, 160, 116, 0.44);
+  --glass-panel-alt:      rgba(224, 232, 204, 0.80);
+
+  --note-text:   #8a6320;
+  --note-bg:     rgba(230, 165, 50, 0.18);
+  --note-border: rgba(230, 165, 50, 0.55);
+  --ok-text:     #207a42;
+  --ok-bg:       rgba(47, 158, 84, 0.16);
+  --ok-bg-hover: rgba(47, 158, 84, 0.26);
+  --ok-border:   rgba(47, 158, 84, 0.42);
+}
+
+/* Dimmed wallpaper backdrop (washed toward the theme bg so text stays legible);
+   the glass panels' backdrop-blur frosts it where they overlap. */
+:root[data-theme="meadow"] .le-bg {
+  background:
+    linear-gradient(rgba(236, 237, 222, 0.50), rgba(226, 229, 210, 0.64)),
+    url('/bg-meadow.jpg') center / cover no-repeat;
+}
+
+/* ── Rosé Pine Dawn — warm paper, muted rose ─────────────────────────────── */
+:root[data-theme="dawn"] {
+  --color-bg:           #faf4ed;
+  --color-accent:       #d7827e;
+  --color-accent-hover: #c4716d;
+  --color-accent-deep:  #907aa9;
+  --color-on-accent:    #ffffff;
+  --color-fg:   #575279;
+  --color-fg-2: #575279;
+  --color-fg-3: #797593;
+  --color-fg-4: #9893a5;
+  --color-line:   rgba(87, 82, 121, 0.14);
+  --color-line-2: rgba(87, 82, 121, 0.28);
+  --color-track:  rgba(87, 82, 121, 0.18);
+  --color-field:  rgba(87, 82, 121, 0.06);
+
+  --glass-nav:            rgba(244, 237, 232, 0.92);
+  --glass-surface:        rgba(255, 250, 243, 0.86);
+  --glass-surface-raised: rgba(242, 233, 225, 0.92);
+  --glass-surface-hover:  rgba(223, 218, 217, 0.95);
+  --glass-panel:          rgba(250, 244, 237, 0.86);
+  --glass-panel-alt:      rgba(242, 233, 225, 0.84);
+
+  --bg-glow:        rgba(215, 130, 126, 0.18);
+  --bg-grad-top:    #fffaf3;
+  --bg-grad-bottom: #faf4ed;
+
+  --note-text:   #9a6a2f;
+  --note-bg:     rgba(234, 157, 52, 0.14);
+  --note-border: rgba(234, 157, 52, 0.55);
+  --ok-text:     #56714e;
+  --ok-bg:       rgba(86, 113, 78, 0.14);
+  --ok-bg-hover: rgba(86, 113, 78, 0.22);
+  --ok-border:   rgba(86, 113, 78, 0.40);
+}
+
+/* ── Catppuccin Latte — cool paper, mauve ────────────────────────────────── */
+:root[data-theme="latte"] {
+  --color-bg:           #eff1f5;
+  --color-accent:       #8839ef;
+  --color-accent-hover: #7a2fe0;
+  --color-accent-deep:  #1e66f5;
+  --color-on-accent:    #ffffff;
+  --color-fg:   #4c4f69;
+  --color-fg-2: #4c4f69;
+  --color-fg-3: #6c6f85;
+  --color-fg-4: #8c8fa1;
+  --color-line:   rgba(76, 79, 105, 0.13);
+  --color-line-2: rgba(76, 79, 105, 0.26);
+  --color-track:  rgba(76, 79, 105, 0.18);
+  --color-field:  rgba(76, 79, 105, 0.06);
+
+  --glass-nav:            rgba(230, 233, 239, 0.92);
+  --glass-surface:        rgba(239, 241, 245, 0.86);
+  --glass-surface-raised: rgba(220, 224, 232, 0.92);
+  --glass-surface-hover:  rgba(204, 208, 218, 0.95);
+  --glass-panel:          rgba(239, 241, 245, 0.86);
+  --glass-panel-alt:      rgba(220, 224, 232, 0.84);
+
+  --bg-glow:        rgba(136, 57, 239, 0.14);
+  --bg-grad-top:    #f2f4f7;
+  --bg-grad-bottom: #eff1f5;
+
+  --note-text:   #8a5a00;
+  --note-bg:     rgba(223, 142, 29, 0.14);
+  --note-border: rgba(223, 142, 29, 0.55);
+  --ok-text:     #2e8a1f;
+  --ok-bg:       rgba(64, 160, 43, 0.14);
+  --ok-bg-hover: rgba(64, 160, 43, 0.22);
+  --ok-border:   rgba(64, 160, 43, 0.40);
+}
+
+/* ── Nord Snow — cool light, frost blue ──────────────────────────────────── */
+:root[data-theme="snow"] {
+  --color-bg:           #eceff4;
+  --color-accent:       #5e81ac;
+  --color-accent-hover: #517099;
+  --color-accent-deep:  #81a1c1;
+  --color-on-accent:    #ffffff;
+  --color-fg:   #2e3440;
+  --color-fg-2: #3b4252;
+  --color-fg-3: #4c566a;
+  --color-fg-4: #6c7689;
+  --color-line:   rgba(46, 52, 64, 0.13);
+  --color-line-2: rgba(46, 52, 64, 0.26);
+  --color-track:  rgba(46, 52, 64, 0.18);
+  --color-field:  rgba(46, 52, 64, 0.05);
+
+  --glass-nav:            rgba(229, 233, 240, 0.92);
+  --glass-surface:        rgba(236, 239, 244, 0.86);
+  --glass-surface-raised: rgba(216, 222, 233, 0.92);
+  --glass-surface-hover:  rgba(200, 209, 225, 0.95);
+  --glass-panel:          rgba(236, 239, 244, 0.86);
+  --glass-panel-alt:      rgba(216, 222, 233, 0.84);
+
+  --bg-glow:        rgba(94, 129, 172, 0.16);
+  --bg-grad-top:    #f2f4f8;
+  --bg-grad-bottom: #eceff4;
+
+  --note-text:   #8a6d00;
+  --note-bg:     rgba(235, 203, 139, 0.22);
+  --note-border: rgba(235, 203, 139, 0.65);
+  --ok-text:     #4a7a3a;
+  --ok-bg:       rgba(163, 190, 140, 0.25);
+  --ok-bg-hover: rgba(163, 190, 140, 0.38);
+  --ok-border:   rgba(163, 190, 140, 0.60);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ── Glass surfaces ──────────────────────────────────────────────────────── */
+.bg-nav            { background-color: var(--glass-nav);            backdrop-filter: blur(18px) saturate(130%); -webkit-backdrop-filter: blur(18px) saturate(130%); }
+.bg-surface        { background-color: var(--glass-surface);        backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%); }
+.bg-surface-raised { background-color: var(--glass-surface-raised); backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%); }
+.bg-surface-hover  { background-color: var(--glass-surface-hover); }
+.bg-panel          { background-color: var(--glass-panel);          backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%); }
+.bg-panel-alt      { background-color: var(--glass-panel-alt); }
+
+.bg-surface, .bg-surface-raised, .bg-panel, .bg-panel-alt {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 24px rgba(0, 0, 0, 0.30);
+}
+
+/* ── Semantic chips driven by tokens (re-theme automatically) ───────────── */
+.note   { color: var(--note-text); background: var(--note-bg); border-left: 2px solid var(--note-border); }
+.pill-on       { color: var(--ok-text); background: var(--ok-bg); border: 1px solid var(--ok-border); }
+.pill-on:hover { background: var(--ok-bg-hover); }
+.nav-active    { color: var(--color-nav-active); background-color: color-mix(in srgb, var(--color-nav-active) 15%, transparent); }
+
+/* ── Ambient background: glow + vertical gradient ────────────────────────── */
+/* absolute (not fixed) so it fills the app's own box — important for the
+   windowed dev preview, where the app is smaller than the viewport. */
+.le-bg {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(1100px 420px at 50% -14%, var(--bg-glow), transparent 70%),
+    linear-gradient(180deg, var(--bg-grad-top) 0%, var(--bg-grad-bottom) 60%);
+}
+
+/* ── Smooth view-in on section switch ────────────────────────────────────── */
+@keyframes le-view-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.le-view { animation: le-view-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) { .le-view { animation: none; } }
+
+/* Scrollbars are themed at runtime via the managed <style> in scrollbar.ts
+   (driven by --color-scrollbar), so they repaint live when edited. */
+
+/* ── Forest — tuned to the background art: sunlit leaf-green on deep forest
+   teal, with green-tinted glass so panels harmonize with the image ───────── */
+:root[data-theme="forest"] {
+  --color-bg:           #1e2520;
+  --color-accent:       #aecb6b; /* sunlit foliage */
+  --color-accent-hover: #bdd884;
+  --color-accent-deep:  #8fb255; /* mid leaf green */
+  --color-on-accent:    #1b2415; /* dark ink on the green */
+
+  --color-fg:   #f1f5ec; /* warm off-white headings */
+  --color-fg-2: #dfe6d6; /* body */
+  --color-fg-3: #a7b39c; /* secondary (sage) */
+  --color-fg-4: #79866e; /* faint (moss) */
+  --color-line:   rgba(190, 214, 150, 0.12);
+  --color-line-2: rgba(190, 214, 150, 0.26);
+  --color-track:  rgba(190, 214, 150, 0.18);
+  --color-field:  rgba(12, 20, 10, 0.28);
+
+  --glass-nav:            rgba(24, 31, 27, 0.90);
+  --glass-surface:        rgba(37, 47, 41, 0.78);
+  --glass-surface-raised: rgba(46, 58, 50, 0.85);
+  --glass-surface-hover:  rgba(57, 71, 61, 0.92);
+  --glass-panel:          rgba(29, 38, 33, 0.82);
+  --glass-panel-alt:      rgba(46, 58, 50, 0.76);
+
+  --bg-glow:        rgba(174, 203, 107, 0.20);
+  --bg-grad-top:    #28332b;
+  --bg-grad-bottom: #1e2520;
+
+  --ok-text:   #b6d672;
+  --ok-bg:     rgba(143, 178, 85, 0.18);
+  --ok-border: rgba(143, 178, 85, 0.42);
+}
+
+/* ── Forest: original app background image as the dimmed backdrop ──────────
+   Plain rgba dim (no color-mix — that invalidated the whole shorthand) over the
+   image, with the theme's accent glow on top so it stays on-theme. Lower
+   specificity than [data-theme] rules, so wallpaper themes (Meadow) keep theirs. */
+.le-bg {
+  background:
+    radial-gradient(1100px 420px at 50% -14%, var(--bg-glow), transparent 70%),
+    linear-gradient(180deg, rgba(10, 13, 11, 0.34) 0%, rgba(8, 10, 9, 0.58) 70%),
+    url('/bg-forest.jpg') center / cover no-repeat;
+}
+
+/* Section labels sit directly over the image (not on a glass panel), so over the
+   bright sunlit parts a faint tone is illegible — lift them to the light body
+   tone + a dark halo. Un-layered, so it beats the layered Tailwind text-* utility. */
+.le-view h1, .le-view h2 {
+  color: var(--color-fg-2);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.55);
+}
+
+/* Themed checkbox — native <input type=checkbox> renders as the OS control even
+   with accent-color, so draw our own. Un-layered to beat Tailwind utilities. */
+.le-check {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--color-line-2);
+  background-color: var(--color-field);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.le-check:hover { border-color: var(--color-accent); }
+.le-check:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(174, 203, 107, 0.45); }
+.le-check:checked { background-color: var(--color-accent); border-color: var(--color-accent); }
+.le-check::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.le-check:checked::after { opacity: 1; }

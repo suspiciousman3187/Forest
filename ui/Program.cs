@@ -5,22 +5,12 @@ namespace Forest.UI;
 
 internal static class Program
 {
-    internal static readonly string Trace =
-        Path.Combine(Path.GetTempPath(), "forest_trace.txt");
-
-    internal static void T(string s)
-    {
-        try { File.AppendAllText(Trace,
-            $"[{DateTime.Now:HH:mm:ss.fff}] {s}\r\n"); } catch { }
-    }
+    internal static void T(string s) => Forest.DiagLog.Log(s);
 
     [STAThread]
     public static void Main()
     {
-        var log = Path.Combine(Path.GetTempPath(), "forest_crash.txt");
-        try { File.WriteAllText(Trace,
-            $"[{DateTime.Now:HH:mm:ss.fff}] Main: ENTER  base={AppContext.BaseDirectory}\r\n"); }
-        catch { }
+        T($"Main: ENTER  base={AppContext.BaseDirectory}");
         try
         {
 
@@ -36,21 +26,11 @@ internal static class Program
         catch (Exception ex)
         {
             T("Main: EXCEPTION " + ex.GetType().Name + ": " + ex.Message);
-            try
-            {
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"[{DateTime.Now:u}] fatal in Main");
-                sb.AppendLine($"CWD={Directory.GetCurrentDirectory()}");
-                sb.AppendLine($"Base={AppContext.BaseDirectory}");
-                for (Exception? e = ex; e != null; e = e.InnerException)
-                    sb.AppendLine($"{e.GetType().FullName}: {e.Message}\n{e.StackTrace}");
-                File.WriteAllText(log, sb.ToString());
-            }
-            catch {  }
+            Forest.DiagLog.Crash("Main", ex);
             try
             {
                 MessageBox.Show($"Forest failed to start:\n\n{ex.Message}"
-                    + $"\n\nFull details:\n{log}", "Forest startup error",
+                    + $"\n\nFull details:\n{Forest.DiagLog.Dir}", "Forest startup error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch {  }

@@ -1,6 +1,15 @@
 # Forest
 
 <p align="center">
+  <a href="https://github.com/suspiciousman3187/Forest/releases/latest">
+    <img src="https://img.shields.io/github/downloads/suspiciousman3187/Forest/total?style=for-the-badge&color=2FB24C&label=Total%20Downloads" alt="Total Downloads" />
+  </a>
+  <a href="https://discord.gg/vSgYvdh8gT">
+    <img src="https://img.shields.io/badge/Discord-Join%20for%20Support-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join The Discord" />
+  </a>
+</p>
+
+<p align="center">
   <img src="docs/screenshot.png" alt="Forest UI" />
   <br>
   <em>Example of the main Forest UI.</em>
@@ -10,6 +19,10 @@ Fully automated PlayOnline login with multibox support, for Windower & Ashita v4
 
 Forest launches PlayOnline for one or multiple Final Fantasy XI accounts and logs
 accounts in programmatically, so it does not require the window(s) to be focused.
+
+## Support
+
+Need help getting set up, run into a problem, or want the latest updates? **[Join the LesserEvil/Forest Discord](https://discord.gg/vSgYvdh8gT)**.
 
 ## Background
 

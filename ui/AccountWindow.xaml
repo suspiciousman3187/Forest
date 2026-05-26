@@ -83,7 +83,7 @@
       <Grid Margin="0,4,0,0">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/><ColumnDefinition Width="14"/>
-          <ColumnDefinition Width="120"/>
+          <ColumnDefinition Width="172"/>
         </Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0">
           <TextBlock x:Name="ProfileLbl" Text="WINDOWER PROFILE"
@@ -91,7 +91,7 @@
           <TextBox x:Name="WindowerBox"/>
         </StackPanel>
         <StackPanel Grid.Column="2">
-          <TextBlock Text="POL SLOT" Style="{StaticResource FieldLabel}"/>
+          <TextBlock Text="POL MEMBER LIST SLOT" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="SlotBox"/>
         </StackPanel>
       </Grid>

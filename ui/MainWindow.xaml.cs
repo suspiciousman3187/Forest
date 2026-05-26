@@ -209,6 +209,9 @@ public partial class MainWindow : MetroWindow
         Program.T("MainWindow.ctor: InitializeComponent");
         InitializeComponent();
         Program.T("MainWindow.ctor: InitializeComponent OK");
+        var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        if (ver != null)
+            Title = $"Forest - Version {ver.Major}.{ver.Minor}.{ver.Build}";
         Grid.ItemsSource = _rows;
         _timer.Tick += PollStatuses;
         _timer.Start();
@@ -833,8 +836,9 @@ public partial class MainWindow : MetroWindow
             PolProxyBox.IsChecked = c.UsePolProxy;
             StartupLaunchBox.IsChecked = c.LaunchSelectedOnStartup;
             AutoEnterBox.IsChecked = c.AutoLoginCharacter;
-            AutoLoginSpeedBox.SelectedIndex =
-                Math.Clamp(c.AutoLoginSettleSeconds, 3, 10) - 3;
+            SendInputFallbackBox.IsChecked = c.AutoLoginSendInputFallback;
+            DebugLogBox.IsChecked = c.DebugLogging;
+            DiagLog.Verbose = c.DebugLogging;
 
             DelayBox.SelectedIndex = c.FastSequential ? 1 : 0;
         }
@@ -862,14 +866,52 @@ public partial class MainWindow : MetroWindow
         c.UsePolProxy = PolProxyBox.IsChecked == true;
         c.LaunchSelectedOnStartup = StartupLaunchBox.IsChecked == true;
         c.AutoLoginCharacter = AutoEnterBox.IsChecked == true;
-        c.AutoLoginSettleSeconds = AutoLoginSpeedBox.SelectedIndex >= 0
-            ? AutoLoginSpeedBox.SelectedIndex + 3 : 5;
+        c.AutoLoginSendInputFallback = SendInputFallbackBox.IsChecked == true;
+        c.DebugLogging = DebugLogBox.IsChecked == true;
+        DiagLog.Verbose = c.DebugLogging;
 
         c.ParallelLaunch = false;
         c.FastSequential = DelayBox.SelectedIndex == 1;
         c.Save();
         UpdateProxyBadge();
         UpdateStatusBar("Settings applied.");
+    }
+
+    private void OnOpenLogsFolder(object s, RoutedEventArgs e)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(DiagLog.Dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = DiagLog.Dir,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Program.T("OpenLogsFolder EX: " + ex);
+            UpdateStatusBar("Could not open logs folder: " + ex.Message);
+        }
+    }
+
+    private void OnExportDiagnostics(object s, RoutedEventArgs e)
+    {
+        try
+        {
+            var zip = DiagLog.ExportZip(Config.Load());
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{zip}\""
+            });
+            UpdateStatusBar("Diagnostics exported to Desktop: " + System.IO.Path.GetFileName(zip));
+        }
+        catch (Exception ex)
+        {
+            Program.T("ExportDiagnostics EX: " + ex);
+            UpdateStatusBar("Export failed: " + ex.Message);
+        }
     }
 
     private void OnPolProxyToggled(object s, RoutedEventArgs e)

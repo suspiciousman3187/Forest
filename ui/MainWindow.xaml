@@ -188,7 +188,9 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
-         <StackPanel Grid.Row="0">
+         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                       HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
+          <StackPanel>
           <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
             <Rectangle Width="3" Height="14"
                        Fill="{DynamicResource MahApps.Brushes.Accent}"
@@ -306,32 +308,35 @@
           <CheckBox x:Name="AutoEnterBox" Margin="0,14,0,0"
                     Foreground="{StaticResource Text}"
                     Checked="OnSettingChanged" Unchecked="OnSettingChanged"
-                    Content="Log In Character Automatically When FFXI Starts"/>
-          <TextBlock Text="Forest will attempt to press Enter key several times to get past the initial screens (Notice, Title, Character Select) when the game starts."
+                    Content="Log In Character Automatically When FFXI Starts (Experimental)"/>
+          <TextBlock Text="Forest will attempt to press Enter several times and navigate to the character slot defined for each account upon FFXI starting."
                      Foreground="{StaticResource SubText}" FontSize="11"
                      TextWrapping="Wrap" Margin="22,2,0,0"/>
 
           <StackPanel Margin="22,8,0,0"
                       Visibility="{Binding IsChecked, ElementName=AutoEnterBox,
                                    Converter={StaticResource BoolToVis}}">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="Speed:" Foreground="{StaticResource SubText}"
-                         FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <ComboBox x:Name="AutoLoginSpeedBox" Width="150"
-                        SelectionChanged="OnSettingSelectionChanged">
-                <ComboBoxItem Content="3s"/>
-                <ComboBoxItem Content="4s"/>
-                <ComboBoxItem Content="5s (Recommended)"/>
-                <ComboBoxItem Content="6s"/>
-                <ComboBoxItem Content="7s"/>
-                <ComboBoxItem Content="8s"/>
-                <ComboBoxItem Content="9s"/>
-                <ComboBoxItem Content="10s"/>
-              </ComboBox>
-            </StackPanel>
-            <TextBlock Text="How long Forest waits between each keypress. Lower is faster but more likely to miss a screen on a slow load; raise it if any screens get skipped."
+            <CheckBox x:Name="SendInputFallbackBox"
+                      Foreground="{StaticResource Text}"
+                      Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                      Content="Enable SendInput Fallback (Requires Window Focus)"/>
+            <TextBlock Text="Forest will attempt to focus the game window and send keystrokes at the OS level if the normal method fails."
                        Foreground="{StaticResource SubText}" FontSize="11"
-                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+                       TextWrapping="Wrap" Margin="22,2,0,0"/>
+          </StackPanel>
+
+          <CheckBox x:Name="DebugLogBox" Margin="0,14,0,0"
+                    Foreground="{StaticResource Text}"
+                    Checked="OnSettingChanged" Unchecked="OnSettingChanged"
+                    Content="Enable Debug Logging"/>
+          <TextBlock Text="Writes detailed logs that help diagnose problems. Turn this on, reproduce the issue, then click Export Diagnostics and send the .zip for support."
+                     Foreground="{StaticResource SubText}" FontSize="11"
+                     TextWrapping="Wrap" Margin="22,2,0,0"/>
+          <StackPanel Orientation="Horizontal" Margin="22,8,0,0">
+            <Button Content="Open Logs Folder" Style="{StaticResource UtilityButton}"
+                    FontSize="12" Padding="14,7" Click="OnOpenLogsFolder"/>
+            <Button Content="Export Diagnostics for Support" Style="{StaticResource UtilityButton}"
+                    FontSize="12" Padding="14,7" Margin="10,0,0,0" Click="OnExportDiagnostics"/>
           </StackPanel>
 
           <Button Content="CLEAN UP STALE POL PROCESSES"
@@ -340,6 +345,7 @@
                   FontSize="13" Padding="0,11" Click="OnCleanStalePol"/>
 
          </StackPanel>
+         </ScrollViewer>
 
           <Border Grid.Row="1" VerticalAlignment="Bottom"
                   BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0"

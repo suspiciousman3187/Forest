@@ -42,7 +42,21 @@ public sealed class LaunchService
 
     public Handle Launch(string profile, Action<string>? log = null)
     {
-        log ??= _ => { };
+        var uiLog = log ?? (_ => { });
+        log = m => { DiagLog.Debug(m); uiLog(m); };
+
+        try
+        {
+            var dbgMarker = Path.Combine(_treesDir, "forest_debug.txt");
+            if (_cfg.DebugLogging) File.WriteAllText(dbgMarker, "1");
+            else if (File.Exists(dbgMarker)) File.Delete(dbgMarker);
+
+            var siMarker = Path.Combine(_treesDir, "forest_sendinput.txt");
+            if (_cfg.AutoLoginSendInputFallback) File.WriteAllText(siMarker, "1");
+            else if (File.Exists(siMarker)) File.Delete(siMarker);
+        }
+        catch {  }
+
         var acct = _store.GetAccount(profile);
         if (string.IsNullOrWhiteSpace(acct.WindowerProfile))
             throw new InvalidOperationException(
@@ -123,12 +137,9 @@ public sealed class LaunchService
             pump.Start();
 
             var sw = Stopwatch.StartNew();
-            while (sw.Elapsed < TimeSpan.FromMinutes(5) &&
-                   (pid == 0 || !wi.HasExited))
-            {
-                if (pid != 0 && wi.HasExited) break;
+            while (sw.Elapsed < TimeSpan.FromMinutes(5) && !wi.HasExited)
                 Thread.Sleep(200);
-            }
+            pump.Join(2000);
             try { File.Delete(credSrc); } catch {  }
             try { File.Delete(totpSrc); } catch {  }
 

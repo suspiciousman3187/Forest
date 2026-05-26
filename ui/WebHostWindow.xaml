@@ -1,0 +1,17 @@
+<Window x:Class="Forest.UI.WebHostWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Forest"
+        Width="580" Height="900" MinWidth="480" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None" ResizeMode="CanResize"
+        Background="#1E2520">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" CornerRadius="0" GlassFrameThickness="0"
+                      ResizeBorderThickness="6" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+    <Grid>
+        <wv2:WebView2 x:Name="Web" DefaultBackgroundColor="#1E2520" />
+    </Grid>
+</Window>

@@ -51,10 +51,10 @@ public sealed class CredentialStore
             Protect(password),
             string.IsNullOrWhiteSpace(totpSecret) ? null : Protect(totpSecret),
             windowerProfile ?? prev?.WindowerProfile,
-            polSlot != 0 ? polSlot : (prev?.PolSlot ?? 0),
+            polSlot,
             launchArgs ?? prev?.LaunchArgs,
             launcher ?? prev?.Launcher,
-            ingameSlot != 0 ? ingameSlot : (prev?.IngameSlot ?? 0));
+            ingameSlot);
         Save();
     }
 
@@ -66,10 +66,10 @@ public sealed class CredentialStore
         _entries[profile] = e with
         {
             WindowerProfile = windowerProfile ?? e.WindowerProfile,
-            PolSlot = polSlot != 0 ? polSlot : e.PolSlot,
+            PolSlot = polSlot,
             LaunchArgs = launchArgs ?? e.LaunchArgs,
             Launcher = launcher ?? e.Launcher,
-            IngameSlot = ingameSlot != 0 ? ingameSlot : e.IngameSlot,
+            IngameSlot = ingameSlot,
         };
         Save();
     }
@@ -104,6 +104,9 @@ public sealed class CredentialStore
         Save();
         return true;
     }
+
+    public bool HasTotp(string profile) =>
+        _entries.TryGetValue(profile, out var e) && !string.IsNullOrEmpty(e.EncTotpSecret);
 
     public string GetPassword(string profile) =>
         Unprotect(Require(profile).EncPassword);

@@ -37,6 +37,10 @@ public sealed class Config
 
     public int AutoLoginSettleSeconds { get; set; } = 5;
 
+    public bool AutoLoginSendInputFallback { get; set; } = false;
+
+    public bool DebugLogging { get; set; } = false;
+
     public List<string> SelectedAccounts { get; set; } = new();
 
     public List<string> AccountOrder { get; set; } = new();
