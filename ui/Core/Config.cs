@@ -19,7 +19,7 @@ public sealed class Config
 
     public bool ParallelLaunch { get; set; } = false;
 
-    public bool FastSequential { get; set; } = false;
+    public bool FastSequential { get; set; } = true;
 
     public int LoginTimeoutSeconds { get; set; } = 120;
 

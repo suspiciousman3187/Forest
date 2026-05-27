@@ -41,12 +41,6 @@ public partial class App : Application
 
         Forest.PolProxy.Log = m => Program.T(m);
         try { Forest.PolProxy.CleanHosts(); } catch { }
-        try
-        {
-            var cfg = Forest.Config.Load();
-            if (cfg.UsePolProxy) Forest.PolProxy.Start(cfg);
-        }
-        catch (Exception ex) { Program.T("PolProxy start failed: " + ex.Message); }
 
         base.OnStartup(e);
         try

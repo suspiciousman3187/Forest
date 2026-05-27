@@ -776,6 +776,16 @@ static volatile bool g_autoEnter = false;
 static volatile int  g_charSlot = 1;
 static volatile int  g_settleMs = 5000;
 static volatile bool g_winEvLateActive = false;
+static RECT g_polOrigRect = {};
+static volatile bool g_polOrigSaved = false;
+
+static void RememberPolRect(int x, int y, int w, int ht)
+{
+    if (x <= -30000 || y <= -30000 || w < 100 || ht < 100) return;
+    g_polOrigRect.left = x; g_polOrigRect.top = y;
+    g_polOrigRect.right = x + w; g_polOrigRect.bottom = y + ht;
+    g_polOrigSaved = true;
+}
 
 struct FindAllCtx { DWORD pid; HWND arr[16]; int n; };
 static BOOL CALLBACK EnumWAll(HWND h, LPARAM lp)
@@ -1025,6 +1035,82 @@ static HRESULT WINAPI Fake_DirectDrawCreateEx(GUID* g, void** ppDD, REFIID iid, 
     return hr;
 }
 
+typedef UINT_PTR FL_SOCKET;
+typedef int (__stdcall *recv_t)(FL_SOCKET, char*, int, int);
+typedef int (__stdcall *send_t)(FL_SOCKET, const char*, int, int);
+static volatile bool g_fastLogin = false;
+static recv_t g_realRecv = nullptr;
+static send_t g_realSend = nullptr;
+static CRITICAL_SECTION g_flCs;
+static struct { FL_SOCKET s; int off; } g_flSock[32];
+static int  g_flSockN = 0;
+static char g_flResp[400];
+static int  g_flRespLen = 0;
+
+static void BuildFastResp()
+{
+    static const char* body =
+        "<pml><body><timer href=\"gameto:1\" enable=\"1\" delay=\"0\"></body></pml>";
+    g_flRespLen = sprintf_s(g_flResp, sizeof(g_flResp),
+        "HTTP/1.1 200 OK\r\nContent-Type: text/x-playonline-pml;charset=UTF-8\r\n"
+        "Content-Length: %d\r\nConnection: close\r\n\r\n%s",
+        (int)strlen(body), body);
+}
+
+static int FlIndex(FL_SOCKET s)
+{
+    for (int i = 0; i < g_flSockN; ++i) if (g_flSock[i].s == s) return i;
+    return -1;
+}
+
+static int __stdcall Fake_send(FL_SOCKET s, const char* buf, int len, int flags)
+{
+    if (!g_realSend) { HMODULE w = GetModuleHandleA("ws2_32.dll");
+                       if (w) g_realSend = (send_t)GetProcAddress(w, "send"); }
+    int r = g_realSend ? g_realSend(s, buf, len, flags) : -1;
+    if (g_fastLogin && buf && len >= 19) {
+        int scan = len < 1024 ? len : 1024;
+        for (int i = 0; i + 19 <= scan; ++i) {
+            if (memcmp(buf + i, "/pml/main/index.pml", 19) == 0) {
+                EnterCriticalSection(&g_flCs);
+                if (FlIndex(s) < 0 && g_flSockN < 32) {
+                    g_flSock[g_flSockN].s = s; g_flSock[g_flSockN].off = 0; ++g_flSockN;
+                }
+                LeaveCriticalSection(&g_flCs);
+                Log("fastlogin: tagged socket for index.pml fetch (in-proc gameto:1)");
+                break;
+            }
+        }
+    }
+    return r;
+}
+
+static int __stdcall Fake_recv(FL_SOCKET s, char* buf, int len, int flags)
+{
+    if (g_fastLogin && buf && len > 0) {
+        EnterCriticalSection(&g_flCs);
+        int i = FlIndex(s);
+        if (i >= 0) {
+            int off = g_flSock[i].off, remain = g_flRespLen - off, n;
+            if (remain <= 0) { g_flSock[i] = g_flSock[--g_flSockN]; n = 0; }
+            else { n = remain < len ? remain : len; memcpy(buf, g_flResp + off, n); g_flSock[i].off = off + n; }
+            LeaveCriticalSection(&g_flCs);
+            if (n == 0) Log("fastlogin: gameto:1 delivered, EOF");
+            return n;
+        }
+        LeaveCriticalSection(&g_flCs);
+    }
+    if (!g_realRecv) { HMODULE w = GetModuleHandleA("ws2_32.dll");
+                       if (w) g_realRecv = (recv_t)GetProcAddress(w, "recv"); }
+    return g_realRecv ? g_realRecv(s, buf, len, flags) : -1;
+}
+
+struct OrdHook { const char* dll; WORD ord; void* trampoline; };
+static const OrdHook kOrdHooks[] = {
+    { "ws2_32.dll", 16, (void*)&Fake_recv },
+    { "ws2_32.dll", 19, (void*)&Fake_send },
+};
+
 static const FakeFocusHook kFakeFocusHooks[] = {
     { "user32.dll", "GetForegroundWindow", (void*)&Fake_GetForegroundWindow },
     { "user32.dll", "GetActiveWindow",     (void*)&Fake_GetActiveWindow     },
@@ -1093,11 +1179,61 @@ static int PatchOneIatEntry(HMODULE mod, const char* dllName,
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
+static int PatchOneIatEntryByOrdinal(HMODULE mod, const char* dllName,
+                                     WORD ord, void* newFn)
+{
+    __try {
+        auto* base = (uint8_t*)mod;
+        auto* dos  = (IMAGE_DOS_HEADER*)base;
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+        auto* nt   = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
+        auto& dir = nt->OptionalHeader
+                      .DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+        if (!dir.VirtualAddress || !dir.Size) return 0;
+
+        auto* desc = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress);
+        int patched = 0;
+        for (; desc->Name; ++desc) {
+            const char* dll = (const char*)(base + desc->Name);
+            if (_stricmp(dll, dllName) != 0) continue;
+            auto* names = desc->OriginalFirstThunk
+                ? (IMAGE_THUNK_DATA*)(base + desc->OriginalFirstThunk)
+                : (IMAGE_THUNK_DATA*)(base + desc->FirstThunk);
+            auto* iat   = (IMAGE_THUNK_DATA*)(base + desc->FirstThunk);
+            for (int i = 0; names[i].u1.AddressOfData; ++i) {
+                if (!(names[i].u1.Ordinal & IMAGE_ORDINAL_FLAG)) continue;
+                if (IMAGE_ORDINAL(names[i].u1.Ordinal) != ord) continue;
+                uintptr_t* slot = (uintptr_t*)&iat[i].u1.Function;
+                if (*slot == (uintptr_t)newFn) continue;
+                DWORD oldProt;
+                if (VirtualProtect(slot, sizeof(void*),
+                                   PAGE_READWRITE, &oldProt))
+                {
+                    LONG idx = InterlockedIncrement(&g_iatRestoreN) - 1;
+                    if (idx < 512) {
+                        g_iatRestores[idx].slot = slot;
+                        g_iatRestores[idx].orig = *slot;
+                    }
+                    *slot = (uintptr_t)newFn;
+                    DWORD tmp;
+                    VirtualProtect(slot, sizeof(void*), oldProt, &tmp);
+                    ++patched;
+                }
+            }
+        }
+        return patched;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
 static int PatchAllFakeFocusInModule(HMODULE mod)
 {
     int n = 0;
     for (auto& h : kFakeFocusHooks)
         n += PatchOneIatEntry(mod, h.dll, h.name, h.trampoline);
+    if (g_fastLogin)
+        for (auto& h : kOrdHooks)
+            n += PatchOneIatEntryByOrdinal(mod, h.dll, h.ord, h.trampoline);
     return n;
 }
 
@@ -1155,6 +1291,7 @@ static LRESULT CALLBACK CbtHookProc(int code, WPARAM wParam, LPARAM lParam)
             bool isChild = (style & WS_CHILD) != 0;
             bool hasParent = cs->lpcs->hwndParent != nullptr;
             if (!isChild && !hasParent) {
+                RememberPolRect(cs->lpcs->x, cs->lpcs->y, w, h);
                 cs->lpcs->x = -32000;
                 cs->lpcs->y = -32000;
                 Log("CBT-CREATE: top-level hwnd-pre=0x%p style=0x%08lX "
@@ -1171,6 +1308,7 @@ static LRESULT CALLBACK CbtHookProc(int code, WPARAM wParam, LPARAM lParam)
             LONG style = GetWindowLongA(h, GWL_STYLE);
             if (!(style & WS_CHILD) && !GetWindow(h, GW_OWNER)) {
                 LONG w = nr->right - nr->left, ht = nr->bottom - nr->top;
+                RememberPolRect(nr->left, nr->top, w, ht);
                 Log("CBT-MOVESIZE: hwnd=0x%p was moving to (%ld,%ld) %ldx%ld "
                     "-> rewrote off-screen", h, nr->left, nr->top, w, ht);
                 nr->right  = -32000 + w;
@@ -1913,6 +2051,20 @@ static bool StashWnd(bool announce)
     return true;
 }
 
+static void RestorePolWnd()
+{
+    HWND h = PolWnd();
+    if (!h) return;
+    int x = g_polOrigSaved ? g_polOrigRect.left : 120;
+    int y = g_polOrigSaved ? g_polOrigRect.top  : 120;
+    if (x <= -30000) x = 120;
+    if (y <= -30000) y = 120;
+    SetWindowPos(h, HWND_BOTTOM, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE);
+    Log("RestorePolWnd: POL window moved on-screen to %d,%d (saved=%d, size kept) "
+        "so POL persists a non-minimized rect", x, y, (int)g_polOrigSaved);
+}
+
 static int ReadTargetSlot()
 {
     char p[MAX_PATH], fb[MAX_PATH];
@@ -2290,6 +2442,7 @@ static DWORD WINAPI StateObserver(LPVOID)
             ++step;
             WriteStatus("DONE", "connect issued");
             g_hideEnabled = false;
+            RestorePolWnd();
             TeardownHooks();
             Log("hide: disabled (DONE) — game window will be visible.");
         } else if (GetTickCount64() - actMs >= RETRY_MS) {
@@ -2323,7 +2476,7 @@ static DWORD WINAPI StateObserver(LPVOID)
     bool ok = step >= 5;
     WriteStatus(ok ? "DONE" : "FAILED",
                 ok ? "login complete" : "ended before connect");
-    if (ok) { g_hideEnabled = false; TeardownHooks(); }
+    if (ok) { g_hideEnabled = false; RestorePolWnd(); TeardownHooks(); }
 
     if (ok) {
         CloseHandle(CreateThread(nullptr, 0, PostConnectWatchdog, nullptr, 0, nullptr));
@@ -2436,6 +2589,14 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
             int ms = 5000;
             int s = ReadAutoEnter(&ms);
             if (s > 0) { g_autoEnter = true; g_charSlot = s; g_settleMs = ms; }
+        }
+        {
+            char fl[MAX_PATH]; DllSibling(fl, MAX_PATH, "forest_fastlogin.txt");
+            if (GetFileAttributesA(fl) != INVALID_FILE_ATTRIBUTES) {
+                InitializeCriticalSection(&g_flCs);
+                BuildFastResp();
+                g_fastLogin = true;
+            }
         }
         InstallFakeFocusAllModules(hMod);
         InstallCbtHooks(hMod);

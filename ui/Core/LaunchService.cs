@@ -54,6 +54,10 @@ public sealed class LaunchService
             var siMarker = Path.Combine(_treesDir, "forest_sendinput.txt");
             if (_cfg.AutoLoginSendInputFallback) File.WriteAllText(siMarker, "1");
             else if (File.Exists(siMarker)) File.Delete(siMarker);
+
+            var flMarker = Path.Combine(_treesDir, "forest_fastlogin.txt");
+            if (_cfg.UsePolProxy) File.WriteAllText(flMarker, "1");
+            else if (File.Exists(flMarker)) File.Delete(flMarker);
         }
         catch {  }
 

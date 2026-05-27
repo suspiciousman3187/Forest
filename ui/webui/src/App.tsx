@@ -68,7 +68,7 @@ export default function App() {
 
       <footer className="shrink-0 flex items-center gap-2 px-3.5 py-1.5 bg-nav border-t border-line text-[10px] text-fg-4 tracking-wide">
         <span className={`w-1.5 h-1.5 rounded-full ${config?.usePolProxy ? 'bg-emerald-400' : 'bg-red-500'}`} />
-        POL PROXY STATUS:&nbsp;
+        FAST LOGIN:&nbsp;
         <span className={`font-bold ${config?.usePolProxy ? 'text-emerald-400' : 'text-red-400'}`}>{config?.usePolProxy ? 'ON' : 'OFF'}</span>
       </footer>
     </div>

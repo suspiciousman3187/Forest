@@ -62,8 +62,9 @@ public static class PolProxy
         lock (_gate)
         {
             if (Running) return;
-            if (!string.IsNullOrWhiteSpace(cfg.PolProxyUpstream))
-                _upstream = cfg.PolProxyUpstream!.Trim();
+
+            CleanHosts();
+            _upstream = ResolveUpstream(cfg);
 
             try { AddHosts(); }
             catch (Exception ex)
@@ -97,6 +98,27 @@ public static class PolProxy
         }
     }
 
+    [DllImport("dnsapi.dll", EntryPoint = "DnsFlushResolverCache")]
+    private static extern bool DnsFlushResolverCache();
+
+    private static string ResolveUpstream(Config cfg)
+    {
+        try { DnsFlushResolverCache(); } catch { }
+        try
+        {
+            var ip = Dns.GetHostAddresses(PolHost)
+                .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork
+                                  && !IPAddress.IsLoopback(a));
+            if (ip != null) { L($"resolved {PolHost} -> {ip} (region upstream)"); return ip.ToString(); }
+            L($"{PolHost} resolved to loopback/none; using fallback upstream.");
+        }
+        catch (Exception ex) { L($"resolve {PolHost} failed: {ex.Message}"); }
+
+        var fb = string.IsNullOrWhiteSpace(cfg.PolProxyUpstream) ? "202.67.54.55" : cfg.PolProxyUpstream!.Trim();
+        L($"fallback upstream {fb}");
+        return fb;
+    }
+
     private static async Task AcceptLoop(TcpListener l, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -125,6 +147,10 @@ public static class PolProxy
                 string path = parts.Length >= 2 ? parts[1] : "/";
 
                 byte[] upstream = await Upstream(reqText);
+                var upHead = upstream.Length > 0
+                    ? Encoding.ASCII.GetString(upstream, 0, Math.Min(upstream.Length, 48)).Split('\n')[0].Trim()
+                    : "(empty)";
+                L($"req: {firstLine} | upstream {_upstream} -> {upstream.Length}B [{upHead}]");
 
                 if (PathOf(path) == "/pml/main/index.pml")
                 {

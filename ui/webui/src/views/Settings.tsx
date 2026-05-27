@@ -54,7 +54,7 @@ export default function Settings({ config, patchConfig }:
             <Toggle on={c.disableAutoLogin} onChange={(v) => patchConfig({ disableAutoLogin: v })} />
           </Row>
         )}
-        <Row label="Bypass PlayOnline Network (POL Proxy)" desc="Redirects pol.com to a local proxy. Requires admin.">
+        <Row label="Fast Login" desc="Skips the PlayOnline news fetch so the login screen loads instantly. Works on all regions.">
           <Toggle on={c.usePolProxy} onChange={(v) => patchConfig({ usePolProxy: v })} />
         </Row>
       </Group>

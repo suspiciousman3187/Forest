@@ -45,7 +45,7 @@ export const demoConfig: Config = {
   windowerArgs: '-p="{profile}"',
   ashitaArgs: '{profile}',
   staggerSeconds: 8,
-  fastSequential: false,
+  fastSequential: true,
   loginTimeoutSeconds: 120,
   hidePolWindow: true,
   disableAutoLogin: false,

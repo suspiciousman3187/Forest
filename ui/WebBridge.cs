@@ -169,7 +169,6 @@ public sealed class WebBridge
     private void ApplyConfigPatch(JsonElement p)
     {
         var c = Config.Load();
-        bool proxyTouched = false;
         static string? E(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
         foreach (var prop in p.EnumerateObject())
@@ -187,7 +186,7 @@ public sealed class WebBridge
                 case "loginTimeoutSeconds": c.LoginTimeoutSeconds = prop.Value.GetInt32(); break;
                 case "hidePolWindow": c.HidePolWindow = prop.Value.GetBoolean(); break;
                 case "disableAutoLogin": c.DisableAutoLogin = prop.Value.GetBoolean(); break;
-                case "usePolProxy": c.UsePolProxy = prop.Value.GetBoolean(); proxyTouched = true; break;
+                case "usePolProxy": c.UsePolProxy = prop.Value.GetBoolean(); break;
                 case "polProxyUpstream": c.PolProxyUpstream = E(prop.Value.GetString()); break;
                 case "launchSelectedOnStartup": c.LaunchSelectedOnStartup = prop.Value.GetBoolean(); break;
                 case "autoLoginCharacter": c.AutoLoginCharacter = prop.Value.GetBoolean(); break;
@@ -201,22 +200,6 @@ public sealed class WebBridge
         c.ParallelLaunch = false;
         c.Save();
         DiagLog.Verbose = c.DebugLogging;
-
-        if (proxyTouched)
-        {
-            try
-            {
-                if (c.UsePolProxy && !PolProxy.Running) PolProxy.Start(c);
-                else if (!c.UsePolProxy && PolProxy.Running) PolProxy.Stop();
-            }
-            catch (Exception ex)
-            {
-                DiagLog.Log("PolProxy toggle failed: " + ex.Message);
-                if (PolProxy.Running != c.UsePolProxy) { c.UsePolProxy = PolProxy.Running; c.Save(); }
-                Emit("notice", new { level = "error", title = "POL PROXY",
-                    message = "Could not start the POL proxy (run Forest as administrator so it can edit the hosts file): " + ex.Message });
-            }
-        }
     }
 
     // ── accounts ────────────────────────────────────────────────────────────────
@@ -349,19 +332,6 @@ public sealed class WebBridge
             if (_noAuto.ContainsKey(profile)) { Set(profile, "RUNNING", h.Pid); continue; }
 
             var f = Friendly(state, msg);
-
-            if (cfg.UsePolProxy)
-            {
-                if (_proxyServed.TryGetValue(h.Pid, out var ts))
-                { Set(profile, (DateTime.UtcNow - ts).TotalSeconds < 3 ? "LAUNCHING GAME" : "RUNNING", h.Pid); continue; }
-                if (f == "RUNNING")
-                {
-                    if (!_doneSince.ContainsKey(h.Pid)) _doneSince[h.Pid] = DateTime.UtcNow;
-                    Set(profile, (DateTime.UtcNow - _doneSince[h.Pid]).TotalSeconds > 90 ? "RUNNING" : "LOGGING IN", h.Pid);
-                    continue;
-                }
-            }
-
             if (f.Length > 0) Set(profile, f, h.Pid);
         }
 
