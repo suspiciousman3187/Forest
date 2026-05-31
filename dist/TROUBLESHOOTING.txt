@@ -1,0 +1,43 @@
+FOREST - TROUBLESHOOTING
+========================
+
+If Forest.exe won't start at all (you double-click it and "nothing happens"):
+
+  1. Double-click  Forest-Doctor.bat  (right next to Forest.exe).
+     It checks every common cause and writes a report to your Desktop
+     called  Forest-Doctor-YYYYMMDD-HHMMSS.txt .
+     If the report tells you what to fix, do that. If not, send the
+     report to the Forest developer.
+
+  2. The two things almost always missing:
+
+       .NET 9 Desktop Runtime (x64)
+         https://dotnet.microsoft.com/download/dotnet/9.0
+         Pick "Desktop Runtime" -> "x64".
+         (Not "ASP.NET Core", not "SDK".)
+
+       WebView2 Runtime
+         https://developer.microsoft.com/microsoft-edge/webview2/
+         Pick "Evergreen Standalone Installer" (x64).
+         (Most Windows 10/11 already have it; install if not.)
+
+  3. Antivirus quarantined Forest.exe / Trees.dll without telling you.
+     Check your AV's quarantine list. If Forest is there, restore it
+     and add an exclusion for the Forest folder.
+
+  4. EXTRACT the ZIP before running. Running Forest.exe from inside the
+     ZIP file (Windows' "preview" mode) often fails silently. Extract
+     to a real folder (e.g. C:\Forest) and run it from there.
+
+
+If Forest opens but a specific feature misbehaves (login, OTP, etc.):
+
+  - Use Forest's "Export Diagnostics" button (Settings) and send the
+    resulting zip to the developer. That captures the trees.log with
+    the live login state machine.
+
+  - If Forest refuses to launch with a "Trees.dll version mismatch"
+    error, your "Trees folder" setting is pointing at an old Forest
+    install. Open Settings -> Trees folder and update it to the
+    'trees' folder inside this Forest install, or clear the field to
+    let Forest auto-detect the bundled trees folder.

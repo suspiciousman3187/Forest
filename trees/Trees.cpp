@@ -356,34 +356,6 @@ static bool LoadTotp()
     return true;
 }
 
-static volatile LONG g_otpProbed = 0;
-static void InspectConnectFrame(uint32_t base)
-{
-    if (!g_haveTotp) return;
-    if (InterlockedIncrement(&g_otpProbed) > 8) return;
-    __try {
-        uint32_t fr = *(uint32_t*)(base + 0x5069CC);
-        bool k; uint32_t fvt = fr ? Deref(fr, k) : 0;
-        Log("OTP-PROBE #%ld: connFrame=0x%08X vtbl=0x%08X (expect base+0x3CD07C=0x%08X) vis=%d",
-            g_otpProbed, fr, fvt, base + 0x3CD07C,
-            fr ? (*(uint8_t*)(fr + 0xF4) & 1) : -1);
-        if (!fr) return;
-
-        for (uint32_t off = 0x100; off <= 0x320; off += 4) {
-            bool ok; uint32_t child = Deref(fr + off, ok);
-            if (!ok || child < 0x10000 || child > 0x7FFF0000) continue;
-            bool ok2; uint32_t cvt = Deref(child, ok2);
-            if (!ok2 || cvt < base || cvt > base + 0x600000) continue;
-            wchar_t peek[24] = { 0 };
-            __try { memcpy(peek, (void*)child, 40); } __except (1) {}
-            Log("  +0x%03X -> obj=0x%08X vtbl=0x%08X(rva=0x%X) txt[%.16ls]",
-                off, child, cvt, cvt - base, peek);
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("OTP-PROBE: walk threw 0x%08X", GetExceptionCode());
-    }
-}
-
 struct FindCtx { DWORD pid; HWND hwnd; };
 static BOOL CALLBACK EnumW(HWND h, LPARAM lp)
 {
@@ -742,7 +714,7 @@ static uint32_t ResolveField(uint32_t skw)
     return o;
 }
 
-static void DoPasswordSeq(uint32_t skw)
+static void FeedSoftKbdField(uint32_t skw, const wchar_t* chars, int n, const char* what)
 {
     __try
     {
@@ -750,16 +722,21 @@ static void DoPasswordSeq(uint32_t skw)
         if (!fieldObj) { Log("nav: ResolveField failed (skw=0x%08X).", skw); return; }
         void** vt = *reinterpret_cast<void***>(fieldObj);
         CharFeed feed = reinterpret_cast<CharFeed>(vt[0x14 / 4]);
-        for (int i = 0; i < g_pwLen; ++i)
-        { uint16_t wc = (uint16_t)g_pw[i]; feed((void*)fieldObj, i, &wc); }
-        SecureZeroMemory(g_pw, sizeof(g_pw));
+        for (int i = 0; i < n; ++i)
+        { uint16_t wc = (uint16_t)chars[i]; feed((void*)fieldObj, i, &wc); }
         void* okThis = (void*)(skw - 0x2A8);
         if (g_fnApply) ((ApplyFn)g_fnApply)(okThis);
         if (g_fnBfc)   ((NotifyFn)g_fnBfc)(okThis, 1);
-        Log("nav: password fed (%d) + OK dispatched (no hook).", g_pwLen);
+        Log("nav: %s fed (%d) + OK dispatched (no hook).", what, n);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
-    { Log("nav: password seq threw 0x%08X.", GetExceptionCode()); }
+    { Log("nav: %s seq threw 0x%08X.", what, GetExceptionCode()); }
+}
+
+static void DoPasswordSeq(uint32_t skw)
+{
+    FeedSoftKbdField(skw, g_pw, g_pwLen, "password");
+    SecureZeroMemory(g_pw, sizeof(g_pw));
 }
 
 static HWND PolWnd()
@@ -1039,6 +1016,7 @@ typedef UINT_PTR FL_SOCKET;
 typedef int (__stdcall *recv_t)(FL_SOCKET, char*, int, int);
 typedef int (__stdcall *send_t)(FL_SOCKET, const char*, int, int);
 static volatile bool g_fastLogin = false;
+static volatile LONG g_fastLoginDone = 0;
 static recv_t g_realRecv = nullptr;
 static send_t g_realSend = nullptr;
 static CRITICAL_SECTION g_flCs;
@@ -1095,7 +1073,11 @@ static int __stdcall Fake_recv(FL_SOCKET s, char* buf, int len, int flags)
             if (remain <= 0) { g_flSock[i] = g_flSock[--g_flSockN]; n = 0; }
             else { n = remain < len ? remain : len; memcpy(buf, g_flResp + off, n); g_flSock[i].off = off + n; }
             LeaveCriticalSection(&g_flCs);
-            if (n == 0) Log("fastlogin: gameto:1 delivered, EOF");
+            if (n == 0) {
+                Log("fastlogin: gameto:1 delivered, EOF");
+                if (!InterlockedExchange(&g_fastLoginDone, 1))
+                    WriteStatus("DONE", "fastlogin complete");
+            }
             return n;
         }
         LeaveCriticalSection(&g_flCs);
@@ -1998,8 +1980,10 @@ static DWORD WINAPI PostConnectWatchdog(LPVOID)
     };
 
     Sleep(10000);
+    if (g_fastLoginDone) return 0;
     if (!PolWnd()) {
         Log("PostConnectWatchdog: POL window gone at +10s (login succeeded).");
+        if (!InterlockedExchange(&g_fastLoginDone, 1)) WriteStatus("DONE", "login complete");
         return 0;
     }
     if (uint32_t hit = tryFindPOL5311()) { fireWrongPw(hit); return 0; }
@@ -2008,12 +1992,15 @@ static DWORD WINAPI PostConnectWatchdog(LPVOID)
         "for slow SE round-trip or late error display.");
     Sleep(20000);
 
+    if (g_fastLoginDone) return 0;
     if (!PolWnd()) {
         Log("PostConnectWatchdog: POL window gone at +30s (slow login "
             "eventually succeeded).");
+        if (!InterlockedExchange(&g_fastLoginDone, 1)) WriteStatus("DONE", "login complete");
         return 0;
     }
     if (uint32_t hit = tryFindPOL5311()) { fireWrongPw(hit); return 0; }
+    if (g_fastLoginDone) return 0;
 
     Log("PostConnectWatchdog: POL window still alive at +30s with no "
         "POL-5311 string. Likely a non-WRONG_SE_PASSWORD error (network / "
@@ -2057,12 +2044,13 @@ static void RestorePolWnd()
     if (!h) return;
     int x = g_polOrigSaved ? g_polOrigRect.left : 120;
     int y = g_polOrigSaved ? g_polOrigRect.top  : 120;
-    if (x <= -30000) x = 120;
-    if (y <= -30000) y = 120;
-    SetWindowPos(h, HWND_BOTTOM, x, y, 0, 0,
-                 SWP_NOSIZE | SWP_NOACTIVATE);
-    Log("RestorePolWnd: POL window moved on-screen to %d,%d (saved=%d, size kept) "
-        "so POL persists a non-minimized rect", x, y, (int)g_polOrigSaved);
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN), vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN), vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    bool onScreen = (x >= vx && y >= vy && x <= vx + vw - 120 && y <= vy + vh - 80);
+    if (!onScreen) { x = vx + 120; y = vy + 120; }
+    SetWindowPos(h, HWND_BOTTOM, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+    Log("RestorePolWnd: POL window to %d,%d (saved=%d onscreen=%d virt=%d,%d %dx%d)",
+        x, y, (int)g_polOrigSaved, (int)onScreen, vx, vy, vw, vh);
 }
 
 static int ReadTargetSlot()
@@ -2170,21 +2158,21 @@ static void DoStepAction(int step, uint32_t softkeywin, bool firstTime)
         if (g_haveTotp) {
             char code[7] = {0};
             if (TotpNow(code)) {
-                Log("nav: Connect+OTP -> DOWN, type 6-digit OTP, DOWN, RETURN%s",
-                    firstTime ? "" : " (retry)");
-                PostKeyToPol(VK_DOWN);   Sleep(140);
-                for (int i = 0; i < 6 && code[i]; ++i) {
-                    PostKeyToPol((WORD)code[i]);
-                    Sleep(50);
-                }
-                Sleep(140);
-                PostKeyToPol(VK_DOWN);   Sleep(140);
-                PostKeyToPol(VK_RETURN); Sleep(80);
-                PostKeyToPol(VK_RETURN);
+                Log("nav: OTP -> DOWN, RETURN(enable), type, ESC(confirm), DOWN, RETURN(connect)");
+                PostKeyToPol(VK_DOWN);   Sleep(280);
+                PostKeyToPol(VK_RETURN); Sleep(450);
+                for (int i = 0; i < 6 && code[i]; ++i) { PostKeyToPol((WORD)code[i]); Sleep(200); }
                 SecureZeroMemory(code, sizeof(code));
+                Sleep(400);
+                Log("nav: OTP -> ESC (confirm)");
+                PostKeyToPol(VK_ESCAPE); Sleep(500);
+                Log("nav: OTP -> DOWN (to Connect)");
+                PostKeyToPol(VK_DOWN);   Sleep(450);
+                Log("nav: OTP -> RETURN (connect)");
+                PostKeyToPol(VK_RETURN); Sleep(120);
+                PostKeyToPol(VK_RETURN);
                 break;
             }
-            Log("nav: TOTP generation failed, falling back to non-OTP flow");
         }
         Log("nav: Connect -> PostKey DOWN, RETURN, RETURN%s",
             firstTime ? "" : " (retry)");
@@ -2406,8 +2394,6 @@ static DWORD WINAPI StateObserver(LPVOID)
         else if (tick % 200 == 0)
             Log("Navigator: alive tick=%d mask=0x%X step=%d", tick, mask, step);
 
-        if (step >= 3) InspectConnectFrame(base);
-
         bool present =
             step==0 ? ((mask & B_MEMBERLIST) != 0) :
             step==1 ? ((mask & B_SUBCMD) != 0) :
@@ -2440,7 +2426,7 @@ static DWORD WINAPI StateObserver(LPVOID)
         } else if (step == 4) {
             Log("nav: Connect issued; sequence done.");
             ++step;
-            WriteStatus("DONE", "connect issued");
+            WriteStatus("CONNECT", "connect issued, awaiting login");
             g_hideEnabled = false;
             RestorePolWnd();
             TeardownHooks();
@@ -2474,8 +2460,8 @@ static DWORD WINAPI StateObserver(LPVOID)
     }
     Log("Navigator: sequence finished at step %d.", step);
     bool ok = step >= 5;
-    WriteStatus(ok ? "DONE" : "FAILED",
-                ok ? "login complete" : "ended before connect");
+    WriteStatus(ok ? "CONNECT" : "FAILED",
+                ok ? "connect issued, awaiting login" : "ended before connect");
     if (ok) { g_hideEnabled = false; RestorePolWnd(); TeardownHooks(); }
 
     if (ok) {

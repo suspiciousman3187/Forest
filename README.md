@@ -1,8 +1,11 @@
 # Forest
 
 <p align="center">
+  <a href="https://suspiciousman3187.github.io/Forest/">
+    <img src="https://img.shields.io/badge/Website-Visit-2FB24C?style=for-the-badge&logo=githubpages&logoColor=white" alt="Forest Website" />
+  </a>
   <a href="https://github.com/suspiciousman3187/Forest/releases/latest">
-    <img src="https://img.shields.io/github/downloads/suspiciousman3187/Forest/total?style=for-the-badge&color=2FB24C&label=Total%20Downloads" alt="Total Downloads" />
+    <img src="https://img.shields.io/github/downloads/suspiciousman3187/Forest/total?style=for-the-badge&color=2FB24C&label=Total%20Downloads&cacheSeconds=3600" alt="Total Downloads" />
   </a>
   <a href="https://discord.gg/vSgYvdh8gT">
     <img src="https://img.shields.io/badge/Discord-Join%20for%20Support-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join The Discord" />

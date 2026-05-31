@@ -10,7 +10,7 @@
     <AssemblyName>Forest</AssemblyName>
     <Product>Forest</Product>
     <AssemblyTitle>Forest</AssemblyTitle>
-    <Version>1.2.0</Version>
+    <Version>1.2.2</Version>
     <StartupObject>Forest.UI.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>

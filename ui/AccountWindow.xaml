@@ -66,10 +66,10 @@
         </ToggleButton>
       </Grid>
 
-      <TextBlock Text="TOTP SECRET  (NOT IMPLEMENTED YET)"
+      <TextBlock Text="TOTP SECRET  (OPTIONAL)"
                  Style="{StaticResource FieldLabel}"/>
-      <TextBox x:Name="TotpBox" IsEnabled="False" Opacity="0.5"/>
-      <TextBlock Text="One-time-password (Security Token) auto-entry isn't supported yet — coming in a later update."
+      <TextBox x:Name="TotpBox"/>
+      <TextBlock Text="Paste the One-Time Password / Security Token setup key (the Base32 'manual entry key' shown when you register an authenticator). Leave blank if the account has no token."
                  Foreground="{StaticResource SubText}" FontSize="11"
                  TextWrapping="Wrap" Margin="0,2,0,0"/>
 

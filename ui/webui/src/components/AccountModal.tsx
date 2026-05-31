@@ -25,6 +25,7 @@ export function AccountModal({ account, accounts, config, onClose, onSaved }:
   const editing = !!account;
   const [name, setName] = useState(account?.profile ?? '');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
   const [launcher, setLauncher] = useState<Launcher>(account?.launcher ?? 'Default');
   const [windower, setWindower] = useState(account?.windower ?? '');
   const [polSlot, setPolSlot] = useState(account?.polSlot ? String(account.polSlot) : '1');
@@ -48,6 +49,8 @@ export function AccountModal({ account, accounts, config, onClose, onSaved }:
     }
     const is = ingameSlot.trim();
     if (is) { const v = Number(is); if (!Number.isInteger(v) || v < 1 || v > 16) return 'Ingame character slot must be 1-16 (or blank).'; }
+    const t = totp.replace(/\s/g, '');
+    if (t && !/^[A-Z2-7]+$/i.test(t)) return 'One-Time Password secret must be a Base32 key (letters A-Z and digits 2-7).';
     return null;
   }
 
@@ -65,6 +68,7 @@ export function AccountModal({ account, accounts, config, onClose, onSaved }:
         launcher,
         launchArgs: args.trim(),
         password: password || undefined,
+        totpSecret: totp.replace(/\s/g, '') || undefined,
       });
       onSaved();
       onClose();
@@ -94,6 +98,9 @@ export function AccountModal({ account, accounts, config, onClose, onSaved }:
         </RowStacked>
         <RowStacked label="SE Password" desc={editing ? 'Leave blank to keep the existing password.' : 'Required.'}>
           <PasswordField value={password} onChange={setPassword} placeholder={editing ? '•••••••• (unchanged)' : 'SE password'} />
+        </RowStacked>
+        <RowStacked label="(OTP) SE Account Software Authenticator Setup Key" desc="OTP Password setup key provided to you when registering a Software Authenticator to your SE Account.">
+          <PasswordField value={totp} onChange={setTotp} placeholder={editing && account?.hasTotp ? '•••••••• (stored)' : 'e.g. 2323 EOFK 23KER 7Z2M ...'} />
         </RowStacked>
         <RowStacked label="Launcher" desc="Per-account launcher; Default uses the global setting.">
           <Segmented<Launcher> full value={launcher} onChange={setLauncher}

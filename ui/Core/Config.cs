@@ -27,7 +27,7 @@ public sealed class Config
 
     public bool DisableAutoLogin { get; set; } = false;
 
-    public bool UsePolProxy { get; set; } = false;
+    public bool UsePolProxy { get; set; } = true;
 
     public string? PolProxyUpstream { get; set; } = "202.67.54.55";
 
@@ -91,7 +91,26 @@ public sealed class Config
             throw new InvalidOperationException(
                 "TreesDir not set/invalid (needs Trees.dll + waitinject.exe). "
                 + "Set it in Settings.");
+
+        var treesDll = System.IO.Path.Combine(TreesDir!, "Trees.dll");
+        var treesVer = System.Diagnostics.FileVersionInfo.GetVersionInfo(treesDll).FileVersion;
+        var ownVer   = typeof(Config).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
+        if (!TreesVersionsMatch(treesVer, ownVer))
+            throw new InvalidOperationException(
+                $"Trees.dll version mismatch: Forest is v{ownVer} but Trees.dll at \"{treesDll}\" is v{treesVer ?? "(no version info)"}. "
+                + "Your 'Trees folder' setting is pointing at a different (likely older) Forest install. "
+                + "Open Settings → Trees folder and update it to the 'trees' folder inside this Forest install, "
+                + "or clear the field to let Forest auto-detect the bundled trees folder next to Forest.exe."
+            );
+
         return TreesDir!;
+    }
+
+    private static bool TreesVersionsMatch(string? treesVer, string ownVer)
+    {
+        if (string.IsNullOrEmpty(treesVer)) return false;
+        if (!Version.TryParse(treesVer, out var vt) || !Version.TryParse(ownVer, out var vo)) return false;
+        return vt.Major == vo.Major && vt.Minor == vo.Minor && vt.Build == vo.Build;
     }
 
     public (string exe, string argsTemplate) ResolveLauncher(string? kind)

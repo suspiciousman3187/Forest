@@ -88,7 +88,7 @@ const mockConfig: Config = {
   loginTimeoutSeconds: 120,
   hidePolWindow: true,
   disableAutoLogin: false,
-  usePolProxy: false,
+  usePolProxy: true,
   polProxyUpstream: '202.67.54.55',
   launchSelectedOnStartup: false,
   autoLoginCharacter: true,

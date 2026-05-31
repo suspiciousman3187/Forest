@@ -49,7 +49,7 @@ public sealed class CredentialStore
         _entries.TryGetValue(profile, out var prev);
         _entries[profile] = new Entry(
             Protect(password),
-            string.IsNullOrWhiteSpace(totpSecret) ? null : Protect(totpSecret),
+            string.IsNullOrWhiteSpace(totpSecret) ? prev?.EncTotpSecret : Protect(totpSecret),
             windowerProfile ?? prev?.WindowerProfile,
             polSlot,
             launchArgs ?? prev?.LaunchArgs,
@@ -70,6 +70,16 @@ public sealed class CredentialStore
             LaunchArgs = launchArgs ?? e.LaunchArgs,
             Launcher = launcher ?? e.Launcher,
             IngameSlot = ingameSlot,
+        };
+        Save();
+    }
+
+    public void SetTotp(string profile, string? totpSecret)
+    {
+        var e = Require(profile);
+        _entries[profile] = e with
+        {
+            EncTotpSecret = string.IsNullOrWhiteSpace(totpSecret) ? null : Protect(totpSecret),
         };
         Save();
     }

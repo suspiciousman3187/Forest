@@ -9,7 +9,7 @@ import { useTheme } from './theme';
 import { DEMO, demoSelection } from './demo';
 import type { Account, AccountStatus, Config } from './types';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.2';
 type Tab = 'home' | 'settings';
 
 export default function App() {

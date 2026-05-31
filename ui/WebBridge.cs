@@ -267,6 +267,8 @@ public sealed class WebBridge
             store.Set(profile, pw, totp, windower, slot, args, launcher, ingame);
         else
             store.SetMeta(profile, windower, slot, args, launcher, ingame);
+
+        if (editing && totp != null) store.SetTotp(profile, totp);
     }
 
     // ── status ────────────────────────────────────────────────────────────────

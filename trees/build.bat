@@ -7,8 +7,12 @@ if not exist %VCVARS% goto :no_vcvars
 call %VCVARS% >nul
 cd /d "%~dp0"
 
+echo === Compiling version resource ===
+rc /nologo /fo Trees.res Trees.rc
+if errorlevel 1 goto :trees_fail
+
 echo === Building Trees.new.dll (x86) ===
-cl /nologo /LD /O2 /MT /EHsc /W3 /DNDEBUG Trees.cpp /Fe:Trees.new.dll /Fo:Trees.obj /link /SUBSYSTEM:WINDOWS
+cl /nologo /LD /O2 /MT /EHsc /W3 /DNDEBUG Trees.cpp Trees.res /Fe:Trees.new.dll /Fo:Trees.obj /link /SUBSYSTEM:WINDOWS
 if errorlevel 1 goto :trees_fail
 
 for %%F in (Trees.old*.dll) do del /q "%%F" >nul 2>nul
@@ -29,7 +33,7 @@ echo === Building waitinject.exe (x86, PID-safe auto-capture) ===
 cl /nologo /O2 /MT /EHsc /W3 /DNDEBUG waitinject.cpp /Fe:waitinject.exe /Fo:waitinject.obj
 if errorlevel 1 goto :wait_fail
 
-del *.obj *.exp *.lib >nul 2>nul
+del *.obj *.exp *.lib *.res >nul 2>nul
 echo === BUILD OK ===
 dir /b Trees.dll waitinject.exe
 exit /b 0

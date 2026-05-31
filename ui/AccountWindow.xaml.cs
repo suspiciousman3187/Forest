@@ -92,6 +92,17 @@ public partial class AccountWindow : MetroWindow
 
         if (string.IsNullOrWhiteSpace(profile)) { Err("Profile name is required."); return; }
 
+        if (totp != null)
+        {
+            try { if (Totp.Generate(totp).Length != 6) throw new FormatException(); }
+            catch
+            {
+                Err("TOTP secret is not a valid Base32 key. Paste the authenticator "
+                    + "'manual entry key' (letters A-Z and digits 2-7, no spaces).");
+                return;
+            }
+        }
+
         var store = CredentialStore.Load();
         bool isNew = _editProfile is null;
         var accounts = store.Accounts();
@@ -157,6 +168,7 @@ public partial class AccountWindow : MetroWindow
 
                 store.SetMeta(profile, windower, slot, args, launcher, ingameSlot);
             }
+            if (!isNew && totp != null) store.SetTotp(profile, totp);
             DialogResult = true;
         }
         catch (Exception ex) { Err(ex.Message); }

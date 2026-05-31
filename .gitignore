@@ -7,6 +7,7 @@ obj/
 trees/*.obj
 trees/*.exp
 trees/*.lib
+trees/*.res
 trees/*.dll
 trees/*.exe
 trees/Trees.new.dll
