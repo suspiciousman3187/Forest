@@ -86,7 +86,11 @@ internal static class DiagLog
             sb.AppendLine($"OS              : {Environment.OSVersion}  ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")})");
             sb.AppendLine($".NET            : {Environment.Version}");
             sb.AppendLine($"AppData         : {AppData.Dir}");
-            sb.AppendLine($"TreesDir        : {cfg.TreesDir}");
+            string resolvedTreesDir;
+            try { resolvedTreesDir = cfg.ResolveTreesDir(); }
+            catch (Exception ex) { resolvedTreesDir = $"(unresolved: {ex.Message})"; }
+            sb.AppendLine($"TreesDir (config): {cfg.TreesDir ?? "(none, using embedded)"}");
+            sb.AppendLine($"TreesDir (resolved): {resolvedTreesDir}");
             sb.AppendLine($"DefaultLauncher : {cfg.DefaultLauncher}");
             sb.AppendLine($"WindowerExe     : {cfg.WindowerExe}  (exists={File.Exists(cfg.WindowerExe ?? "")})");
             sb.AppendLine($"AshitaExe       : {cfg.AshitaExe}  (exists={File.Exists(cfg.AshitaExe ?? "")})");
@@ -108,9 +112,8 @@ internal static class DiagLog
 
             try
             {
-                var tl = string.IsNullOrEmpty(cfg.TreesDir)
-                    ? null : Path.Combine(cfg.TreesDir!, "trees.log");
-                if (tl != null && File.Exists(tl))
+                var tl = Path.Combine(resolvedTreesDir, "trees.log");
+                if (File.Exists(tl))
                     File.Copy(tl, Path.Combine(staging, "trees.log"), true);
             }
             catch {  }

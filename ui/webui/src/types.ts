@@ -14,12 +14,16 @@ export interface Account {
 }
 
 // Friendly launch states shown on the account row.
+// 'LOGIN COMPLETE' is splash-only: the AutoLaunchSplash component substitutes
+// it for the underlying RUNNING state when all watched accounts are fully in
+// game, during the auto-quit settle countdown. Backend never sets it.
 export type LaunchState =
   | 'INACTIVE' | 'QUEUED'
   | 'LAUNCH WINDOWER' | 'LAUNCH ASHITA' | 'LAUNCH POL' | 'SELECT ACCOUNT'
   | 'INPUT PASSWORD' | 'LOGGING IN' | 'LAUNCHING GAME'
-  | 'RUNNING' | 'DONE'
-  | 'FAILED' | 'WRONG SE PASSWORD' | 'LOGIN STUCK' | 'TIMEOUT' | 'TERMINATED';
+  | 'RUNNING' | 'DONE' | 'LOGIN COMPLETE'
+  | 'FAILED' | 'WRONG SE PASSWORD' | 'LOGIN STUCK' | 'TIMEOUT' | 'TERMINATED'
+  | 'DISCONNECTED';
 
 export interface AccountStatus {
   profile: string;
@@ -45,6 +49,10 @@ export interface Config {
   autoLoginCharacter: boolean;
   autoLoginSettleSeconds: number;
   autoLoginSendInputFallback: boolean;
+  waitForFFXiRegistryReadBetweenLaunches: boolean;
+  waitForFFXiRegistryReadTimeoutSeconds: number;
+  overrideFFXiResolution: boolean;
+  launchMode: 'Full' | 'Splash';
   debugLogging: boolean;
   selectedAccounts: string[];
   accountOrder: string[];

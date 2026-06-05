@@ -17,7 +17,7 @@ export function Row({ label, desc, children }: { label: string; desc?: string; c
     <div className="flex items-center gap-3 px-3.5 py-2.5">
       <div className="min-w-0">
         <div className="text-[13px] text-fg-2 leading-tight">{label}</div>
-        {desc && <div className="text-[11px] text-fg-4 mt-0.5 leading-snug">{desc}</div>}
+        {desc && <div className="text-[11px] text-fg-3 mt-0.5 leading-snug">{desc}</div>}
       </div>
       {children && <div className="ml-auto shrink-0">{children}</div>}
     </div>
@@ -28,7 +28,7 @@ export function RowStacked({ label, desc, children }: { label: string; desc?: st
   return (
     <div className="px-3.5 py-2.5">
       <div className="text-[13px] text-fg-2 leading-tight">{label}</div>
-      {desc && <div className="text-[11px] text-fg-4 mt-0.5 leading-snug">{desc}</div>}
+      {desc && <div className="text-[11px] text-fg-3 mt-0.5 leading-snug">{desc}</div>}
       <div className="mt-2">{children}</div>
     </div>
   );

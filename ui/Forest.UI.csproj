@@ -10,7 +10,7 @@
     <AssemblyName>Forest</AssemblyName>
     <Product>Forest</Product>
     <AssemblyTitle>Forest</AssemblyTitle>
-    <Version>1.2.2</Version>
+    <Version>1.2.4</Version>
     <StartupObject>Forest.UI.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
@@ -39,6 +39,18 @@
     <Resource Include="Assets\app256.png" />
     <Resource Include="Assets\ashita.ico" />
     <Resource Include="Assets\iconWindower.png" />
+  </ItemGroup>
+
+  <!-- Embedded: trees\build.bat must have run first. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\trees\Trees.dll">
+      <LogicalName>Trees.dll</LogicalName>
+      <Visible>false</Visible>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\trees\waitinject.exe">
+      <LogicalName>waitinject.exe</LogicalName>
+      <Visible>false</Visible>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

@@ -19,11 +19,20 @@ trees/cred*.bin
 trees/totp*.bin
 trees/nohide*.txt
 trees/autoenter*.txt
+trees/bgres*.txt
+trees/winpos*.txt
+trees/cred_src_*.bin
+trees/totp_src_*.bin
 trees/forest_debug.txt
 trees/forest_sendinput.txt
 trees/forest_fastlogin.txt
 trees/trees.log
 trees/trees.old.log
+
+# --- per-user Forest config + diagnostics (must never be committed) ----
+ui/forest.config.json
+ui/creds.dat
+ui/forest_diag_*.zip
 
 # --- third-party / large trees (not Forest's own code) ------------------
 Ashita-v4beta-4.16-final/

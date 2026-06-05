@@ -73,6 +73,9 @@ export const api = {
   openExternal:     (url: string) => call<void>('open.external', { url }),
   window:           (action: 'minimize' | 'maximize' | 'close' | 'drag') => call<void>('window.' + action),
   setAlwaysOnTop:   (on: boolean) => call<void>('window.alwaysOnTop', { on }),
+  splashArmed:      () => call<{ armed: boolean; watching: string[] }>('splash.armed'),
+  splashExit:       (info?: { reason?: string }) => call<void>('splash.exit', info ?? {}),
+  splashRetry:      () => call<void>('splash.retry'),
 };
 
 // ══ MOCK (browser dev only) ═══════════════════════════════════════════════════
@@ -94,6 +97,10 @@ const mockConfig: Config = {
   autoLoginCharacter: true,
   autoLoginSettleSeconds: 5,
   autoLoginSendInputFallback: false,
+  waitForFFXiRegistryReadBetweenLaunches: false,
+  waitForFFXiRegistryReadTimeoutSeconds: 120,
+  overrideFFXiResolution: true,
+  launchMode: 'Full',
   debugLogging: false,
   selectedAccounts: [],
   accountOrder: ['Tank', 'Healer', 'Shinchan'],

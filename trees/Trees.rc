@@ -1,8 +1,8 @@
 #include <winver.h>
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION    1,2,2,0
- PRODUCTVERSION 1,2,2,0
+ FILEVERSION    1,2,4,0
+ PRODUCTVERSION 1,2,4,0
  FILEFLAGSMASK  0x3fL
  FILEFLAGS      0x0L
  FILEOS         0x40004L
@@ -15,11 +15,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Forest"
             VALUE "FileDescription",  "Forest Trees - POL injected helper"
-            VALUE "FileVersion",      "1.2.2.0"
+            VALUE "FileVersion",      "1.2.4.0"
             VALUE "InternalName",     "Trees.dll"
             VALUE "OriginalFilename", "Trees.dll"
             VALUE "ProductName",      "Forest"
-            VALUE "ProductVersion",   "1.2.2.0"
+            VALUE "ProductVersion",   "1.2.4.0"
         END
     END
     BLOCK "VarFileInfo"

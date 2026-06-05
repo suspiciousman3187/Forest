@@ -92,7 +92,7 @@ export default function Home({ accounts, statuses, config, refreshAccounts, sel,
       <div className="flex items-center gap-2 mb-3">
         <h1 className="text-[12px] font-bold tracking-[0.14em] text-fg-2 [text-shadow:0_1px_4px_rgba(0,0,0,0.8)]">ACCOUNTS <span className="text-fg-3">({accounts.length})</span></h1>
         <div className="ml-auto">
-          <Button variant="accent" onClick={() => setWizard(true)}>+ Add Account</Button>
+          <Button variant="accent" onClick={() => setWizard(true)}>+ ADD ACCOUNT</Button>
         </div>
       </div>
 
@@ -110,7 +110,7 @@ export default function Home({ accounts, statuses, config, refreshAccounts, sel,
 
         {accounts.length === 0 && (
           <div className="px-4 py-10 text-center text-[12px] text-fg-4">
-            No accounts yet. Click <b className="text-fg-2">+ Add Account</b> to create one.
+            No accounts yet. Click <b className="text-fg-2">+ ADD ACCOUNT</b> to create one.
           </div>
         )}
 
@@ -154,7 +154,7 @@ export default function Home({ accounts, statuses, config, refreshAccounts, sel,
         <button
           onClick={canLaunch ? launchSel : undefined}
           className={`flex-1 py-2.5 rounded-lg text-[13px] font-bold tracking-[0.08em] transition-colors ${
-            canLaunch ? 'bg-green-500 text-green-950 hover:bg-green-400' : 'bg-surface-raised text-fg-4 border border-line cursor-default'
+            canLaunch ? 'bg-green-700 text-white hover:bg-green-600' : 'bg-surface-raised text-fg-4 border border-line cursor-default'
           }`}
         >LAUNCH{launchTargets.length ? ` (${launchTargets.length})` : ''}</button>
         <button

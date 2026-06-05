@@ -44,10 +44,12 @@ const STATE: Record<LaunchState, { cls: string; dot?: string; pulse?: boolean }>
   'LAUNCHING GAME':  { cls: 'text-lime-300 bg-lime-400/12 border border-lime-400/40',         dot: 'bg-lime-300',    pulse: true },
   RUNNING:           { cls: 'pill-on', dot: 'bg-emerald-400' },
   DONE:              { cls: 'pill-on', dot: 'bg-emerald-400' },
+  'LOGIN COMPLETE':  { cls: 'pill-on', dot: 'bg-emerald-400' },
   FAILED:            { cls: 'text-red-300 bg-red-500/12 border border-red-500/40',   dot: 'bg-red-400' },
   'WRONG SE PASSWORD': { cls: 'text-rose-300 bg-rose-500/12 border border-rose-500/40', dot: 'bg-rose-400' },
   'LOGIN STUCK':     { cls: 'text-red-300 bg-red-500/12 border border-red-500/40',   dot: 'bg-red-400' },
   TIMEOUT:           { cls: 'text-red-300 bg-red-500/12 border border-red-500/40',   dot: 'bg-red-400' },
+  DISCONNECTED:      { cls: 'text-red-300 bg-red-500/12 border border-red-500/40',   dot: 'bg-red-400' },
 };
 
 export function StatusBadge({ status }: { status: LaunchState }) {
@@ -55,6 +57,19 @@ export function StatusBadge({ status }: { status: LaunchState }) {
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide whitespace-nowrap ${s.cls}`}>
       {s.dot && <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${s.pulse ? 'animate-pulse' : ''}`} />}
+      {status}
+    </span>
+  );
+}
+
+// Larger variant used by the splash screen. Same color semantics, taller +
+// wider padding + larger text so it can stand on its own as the focal item
+// of a minimalist auto-launch window.
+export function StatusBadgeLarge({ status }: { status: LaunchState }) {
+  const s = STATE[status] ?? STATE.INACTIVE;
+  return (
+    <span className={`inline-flex items-center gap-2.5 px-4 py-1.5 rounded-lg text-[14px] font-bold tracking-wider whitespace-nowrap ${s.cls}`}>
+      {s.dot && <span className={`w-2.5 h-2.5 rounded-full ${s.dot} ${s.pulse ? 'animate-pulse' : ''}`} />}
       {status}
     </span>
   );

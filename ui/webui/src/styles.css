@@ -448,7 +448,7 @@
    the glass panels' backdrop-blur frosts it where they overlap. */
 :root[data-theme="meadow"] .le-bg {
   background:
-    linear-gradient(rgba(236, 237, 222, 0.50), rgba(226, 229, 210, 0.64)),
+    linear-gradient(rgba(236, 237, 222, 0.32), rgba(226, 229, 210, 0.44)),
     url('/bg-meadow.jpg') center / cover no-repeat;
 }
 
@@ -650,7 +650,7 @@ body {
 .le-bg {
   background:
     radial-gradient(1100px 420px at 50% -14%, var(--bg-glow), transparent 70%),
-    linear-gradient(180deg, rgba(10, 13, 11, 0.34) 0%, rgba(8, 10, 9, 0.58) 70%),
+    linear-gradient(180deg, rgba(10, 13, 11, 0.22) 0%, rgba(8, 10, 9, 0.42) 70%),
     url('/bg-forest.jpg') center / cover no-repeat;
 }
 
@@ -693,3 +693,364 @@ body {
   transition: opacity 100ms ease;
 }
 .le-check:checked::after { opacity: 1; }
+
+/* ============================================================================
+   Auto-launch splash (ported from Gnosis LoadingScreen)
+   3-layer nested transform: outer translate (hop+bounce), middle scale
+   (squash-pop), inner rotate (3 revs decelerating). 1.6s loop. Each transform
+   on its own element so easing curves don't get flattened.
+   ============================================================================ */
+
+.splash-overlay {
+  z-index: 10;
+  opacity: 1;
+  transition: opacity 400ms ease-out;
+  pointer-events: auto;
+}
+.splash-overlay--exiting { opacity: 0; pointer-events: none; }
+
+.splash-stage {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.splash-translate {
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: splash-translate 1.6s infinite both;
+}
+@keyframes splash-translate {
+  0%, 7.5%  { transform: translateY(0); }
+  28.125%   { transform: translateY(-14px); }
+  46%       { transform: translateY(0); }
+  55%       { transform: translateY(-4px); }
+  64%       { transform: translateY(0); }
+  72%       { transform: translateY(-1.5px); }
+  81.25%    { transform: translateY(0); }
+  100%      { transform: translateY(0); }
+}
+
+.splash-scale {
+  width: 104px;
+  height: 104px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: splash-scale 1.6s infinite both;
+}
+@keyframes splash-scale {
+  0%      { transform: scale(1);    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  7.5%    { transform: scale(0.88); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  25%     { transform: scale(1.14); animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+  81.25%  { transform: scale(1);    animation-timing-function: linear; }
+  100%    { transform: scale(1); }
+}
+
+.splash-rotate {
+  display: block;
+  width: 104px;
+  height: 104px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.4));
+  animation: splash-rotate 1.6s infinite both;
+  transform-origin: center center;
+}
+@keyframes splash-rotate {
+  0%, 7.5%      { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+  81.25%, 100%  { transform: rotate(1080deg); }
+}
+
+.splash-dots {
+  display: inline-block;
+  margin-left: 1px;
+  letter-spacing: 1px;
+}
+.splash-dots > span { display: inline-block; opacity: 0; }
+.splash-dots > span:nth-child(1) { animation: splash-dot-1 1.4s infinite both; }
+.splash-dots > span:nth-child(2) { animation: splash-dot-2 1.4s infinite both; }
+.splash-dots > span:nth-child(3) { animation: splash-dot-3 1.4s infinite both; }
+@keyframes splash-dot-1 { 0%, 21.43% { opacity: 0; } 21.44%, 100% { opacity: 1; } }
+@keyframes splash-dot-2 { 0%, 39.29% { opacity: 0; } 39.30%, 100% { opacity: 1; } }
+@keyframes splash-dot-3 { 0%, 57.14% { opacity: 0; } 57.15%, 100% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-translate, .splash-scale, .splash-rotate,
+  .splash-dots > span { animation: none; opacity: 1; }
+}
+
+/* Forest-specific splash window chrome: borderless small window, frosted
+   background, centered column layout, status rows + STOP button. */
+.splash-window {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 32px;
+  /* Base dark fill behind the bg image — keeps the splash legible even at
+     opacity 0 on the image layer. */
+  background: #0e1410;
+  color: var(--color-fg);
+  -webkit-app-region: drag;
+  user-select: none;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* Background image layer — sits behind everything in the splash but on top
+   of the base dark fill. Opacity is driven by --splash-bg-opacity (default
+   1.0 production; demo lets the user scrub 0..1). */
+.splash-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(800px 320px at 50% -10%, rgba(174, 203, 107, 0.18), transparent 70%),
+    linear-gradient(180deg, rgba(10, 13, 11, 0.38) 0%, rgba(8, 10, 9, 0.58) 70%),
+    url('/bg-forest.jpg') center / cover no-repeat;
+  opacity: var(--splash-bg-opacity, 1.0);
+  pointer-events: none;
+  z-index: -1;
+}
+.splash-window > * { position: relative; }
+.splash-window > button, .splash-window .splash-rows { -webkit-app-region: no-drag; }
+.splash-caption {
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: rgba(245, 250, 245, 0.95);
+  /* Layered shadow: a tight dark halo + a softer glow + a subtle white
+     glint above. Keeps the caption legible across any bg-image brightness. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.75),
+    0 0 12px rgba(0, 0, 0, 0.45);
+}
+/* Also lift the account name + countdown legibility for the bg image. */
+.splash-row-name {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+}
+.splash-countdown {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.splash-rows {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+  align-items: center;
+}
+.splash-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.splash-row-name {
+  font-weight: 700;
+  color: var(--color-fg);
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* Multi-account variant — kicks in when more than one account is being
+   watched. Switches each row from vertical (name-on-top-of-badge) to
+   horizontal (name | mini-bar | badge), all aligned to the same x via
+   fixed-width name + badge slots. Single-account UI is intentionally
+   untouched and continues to use the rules above. */
+.splash-rows.is-multi {
+  max-width: 440px;
+  gap: 8px;
+  align-items: stretch;
+}
+.splash-rows.is-multi .splash-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.splash-rows.is-multi .splash-row-name {
+  font-size: 13px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.6);
+  flex: 0 0 88px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Per-account mini-bar — 12 chunks matching the centerpiece track but at
+   ~6px height to keep multi-row stacks compact. Driven by each account's
+   own progress, not the laggard min. */
+.splash-row-bar {
+  flex: 1;
+  min-width: 60px;
+  height: 6px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.splash-row-chunk {
+  flex: 1;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  transition: background 280ms ease, box-shadow 280ms ease, border-color 280ms ease;
+}
+.splash-row-chunk--on {
+  background: linear-gradient(180deg, #5fe294 0%, #2fb56b 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 0 4px rgba(74, 222, 128, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+/* Fixed-width badge slot so multi-account rows align: bar ends and badge
+   start/end land at the same x across every row regardless of label.
+   Badge stretches to fill the slot; dot + label center inside. 180px
+   fits the longest common label (LAUNCH WINDOWER); rare fatal labels
+   like WRONG SE PASSWORD may overflow slightly.
+   `flex: 1 1 auto` + `width: 100%` on the inner span forces it to fill
+   the slot — inline-flex spans default to shrink-to-content otherwise,
+   which is what made INPUT PASSWORD render narrower than LAUNCH WINDOWER
+   even though both wrappers were 180px wide. */
+.splash-row-badge {
+  flex: 0 0 180px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.splash-row-badge > span {
+  flex: 1 1 auto;
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* Horizontal "journey" track that replaces the in-place hop. The icon
+   translates from left (0%) to right (100%) based on lifecycle progress
+   (state -> --journey-x var set inline by React). Rotation kept so the
+   icon "rolls" along the track. */
+.splash-journey {
+  position: relative;
+  width: 320px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+}
+/* Segmented production track: 12 discrete chunks light up progressively
+   from left to right (battery-meter feel). React renders 12 .chunk
+   children inside this flex container. */
+.splash-journey-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  height: 10px;
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+.splash-journey-chunk {
+  flex: 1;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  transition: background 280ms ease, box-shadow 280ms ease, border-color 280ms ease;
+}
+.splash-journey-chunk--on {
+  background: linear-gradient(180deg, #5fe294 0%, #2fb56b 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 0 6px rgba(74, 222, 128, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.splash-traveler {
+  position: absolute;
+  bottom: 36px;
+  left: 0;
+  width: 64px;
+  height: 64px;
+  transform: translateX(var(--journey-x, 0px));
+  transition: transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.splash-traveler img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+  animation: splash-rotate 1.6s infinite both;
+  transform-origin: center center;
+}
+/* When the login completes, swap the rolling spin for a looped jump/cheer:
+   anticipation squat -> upward leap with a happy rotation -> squash landing
+   -> small recoil hop. Period is brisk (0.85s) to read as upbeat without
+   feeling frantic. Higher specificity (img + class) overrides the default. */
+.splash-traveler img.splash-celebrate {
+  animation: splash-celebrate 0.85s ease-in-out infinite;
+}
+@keyframes splash-celebrate {
+  0%   { transform: translateY(0) rotate(-6deg) scale(1, 1); }
+  15%  { transform: translateY(2px) rotate(-3deg) scale(1.12, 0.88); }  /* anticipation squat */
+  40%  { transform: translateY(-22px) rotate(7deg) scale(0.94, 1.08); } /* leap apex */
+  62%  { transform: translateY(-18px) rotate(8deg) scale(0.96, 1.06); } /* hang at top */
+  78%  { transform: translateY(0) rotate(4deg) scale(1.14, 0.86); }     /* landing squash */
+  92%  { transform: translateY(-3px) rotate(-2deg) scale(0.98, 1.02); } /* tiny recoil */
+  100% { transform: translateY(0) rotate(-6deg) scale(1, 1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-traveler img.splash-celebrate { animation: none; }
+}
+
+/* Splash bottom action row — STOP is always present; RETRY appears next
+   to it when any watched profile is in a terminal-bad state. */
+.splash-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+.splash-stop-btn,
+.splash-retry-btn {
+  padding: 8px 28px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(0,0,0,0.35);
+  color: var(--color-fg);
+  border: 1px solid var(--color-fg-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.splash-stop-btn:hover {
+  background: rgba(213, 87, 87, 0.18);
+  border-color: rgba(213, 87, 87, 0.7);
+  color: rgba(255, 220, 220, 0.95);
+}
+.splash-retry-btn:hover {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.7);
+  color: rgba(220, 255, 220, 0.95);
+}
+.splash-countdown {
+  font-size: 11px;
+  color: var(--color-fg-3);
+  letter-spacing: 0.08em;
+}

@@ -17,6 +17,8 @@
 
 #define DIAG_CAPTURE_FIRE 0
 
+static volatile LONG g_inGameFired = 0;
+
 static void LogPath(char* out, DWORD n)
 {
     HMODULE self = nullptr;
@@ -1075,7 +1077,10 @@ static int __stdcall Fake_recv(FL_SOCKET s, char* buf, int len, int flags)
             LeaveCriticalSection(&g_flCs);
             if (n == 0) {
                 Log("fastlogin: gameto:1 delivered, EOF");
-                if (!InterlockedExchange(&g_fastLoginDone, 1))
+                if (g_inGameFired) {
+                    Log("fastlogin: IN_GAME already fired — suppressing DONE write");
+                }
+                else if (!InterlockedExchange(&g_fastLoginDone, 1))
                     WriteStatus("DONE", "fastlogin complete");
             }
             return n;
@@ -1093,19 +1098,40 @@ static const OrdHook kOrdHooks[] = {
     { "ws2_32.dll", 19, (void*)&Fake_send },
 };
 
+static LSTATUS WINAPI Hook_RegOpenKeyExW(HKEY, LPCWSTR, DWORD, REGSAM, PHKEY);
+static LSTATUS WINAPI Hook_RegOpenKeyExA(HKEY, LPCSTR, DWORD, REGSAM, PHKEY);
+static LSTATUS WINAPI Hook_RegQueryValueExW(HKEY, LPCWSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+static LSTATUS WINAPI Hook_RegQueryValueExA(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+static LSTATUS WINAPI Hook_RegGetValueW(HKEY, LPCWSTR, LPCWSTR, DWORD, LPDWORD, PVOID, LPDWORD);
+static LSTATUS WINAPI Hook_RegGetValueA(HKEY, LPCSTR, LPCSTR, DWORD, LPDWORD, PVOID, LPDWORD);
+static HANDLE  WINAPI Hook_OpenFileMappingW(DWORD, BOOL, LPCWSTR);
+static LPVOID  WINAPI Hook_MapViewOfFile(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+static LONG    WINAPI Hook_ChangeDisplaySettingsW(LPDEVMODEW, DWORD);
+static LONG    WINAPI Hook_ChangeDisplaySettingsExW(LPCWSTR, LPDEVMODEW, HWND, DWORD, LPVOID);
+
 static const FakeFocusHook kFakeFocusHooks[] = {
-    { "user32.dll", "GetForegroundWindow", (void*)&Fake_GetForegroundWindow },
-    { "user32.dll", "GetActiveWindow",     (void*)&Fake_GetActiveWindow     },
-    { "user32.dll", "GetFocus",            (void*)&Fake_GetFocus            },
-    { "user32.dll", "IsIconic",            (void*)&Fake_IsIconic            },
-    { "user32.dll", "IsWindowVisible",     (void*)&Fake_IsWindowVisible     },
-    { "user32.dll", "CreateWindowExA",     (void*)&Fake_CreateWindowExA     },
-    { "user32.dll", "CreateWindowExW",     (void*)&Fake_CreateWindowExW     },
-    { "user32.dll", "ShowWindow",          (void*)&Fake_ShowWindow          },
-    { "user32.dll", "SetWindowPos",        (void*)&Fake_SetWindowPos        },
-    { "user32.dll", "MoveWindow",          (void*)&Fake_MoveWindow          },
-    { "ddraw.dll",  "DirectDrawCreate",    (void*)&Fake_DirectDrawCreate    },
-    { "ddraw.dll",  "DirectDrawCreateEx",  (void*)&Fake_DirectDrawCreateEx  },
+    { "user32.dll",   "GetForegroundWindow", (void*)&Fake_GetForegroundWindow },
+    { "user32.dll",   "GetActiveWindow",     (void*)&Fake_GetActiveWindow     },
+    { "user32.dll",   "GetFocus",            (void*)&Fake_GetFocus            },
+    { "user32.dll",   "IsIconic",            (void*)&Fake_IsIconic            },
+    { "user32.dll",   "IsWindowVisible",     (void*)&Fake_IsWindowVisible     },
+    { "user32.dll",   "CreateWindowExA",     (void*)&Fake_CreateWindowExA     },
+    { "user32.dll",   "CreateWindowExW",     (void*)&Fake_CreateWindowExW     },
+    { "user32.dll",   "ShowWindow",          (void*)&Fake_ShowWindow          },
+    { "user32.dll",   "SetWindowPos",        (void*)&Fake_SetWindowPos        },
+    { "user32.dll",   "MoveWindow",          (void*)&Fake_MoveWindow          },
+    { "ddraw.dll",    "DirectDrawCreate",    (void*)&Fake_DirectDrawCreate    },
+    { "ddraw.dll",    "DirectDrawCreateEx",  (void*)&Fake_DirectDrawCreateEx  },
+    { "advapi32.dll", "RegOpenKeyExW",            (void*)&Hook_RegOpenKeyExW            },
+    { "advapi32.dll", "RegOpenKeyExA",            (void*)&Hook_RegOpenKeyExA            },
+    { "advapi32.dll", "RegQueryValueExW",         (void*)&Hook_RegQueryValueExW         },
+    { "advapi32.dll", "RegQueryValueExA",         (void*)&Hook_RegQueryValueExA         },
+    { "advapi32.dll", "RegGetValueW",             (void*)&Hook_RegGetValueW             },
+    { "advapi32.dll", "RegGetValueA",             (void*)&Hook_RegGetValueA             },
+    { "kernel32.dll", "OpenFileMappingW",         (void*)&Hook_OpenFileMappingW         },
+    { "kernel32.dll", "MapViewOfFile",            (void*)&Hook_MapViewOfFile            },
+    { "user32.dll",   "ChangeDisplaySettingsW",   (void*)&Hook_ChangeDisplaySettingsW   },
+    { "user32.dll",   "ChangeDisplaySettingsExW", (void*)&Hook_ChangeDisplaySettingsExW },
 };
 
 struct IatRestore { uintptr_t* slot; uintptr_t orig; };
@@ -1495,6 +1521,877 @@ static const GUID kGUID_SysKeyboard =
 typedef HRESULT (WINAPI *DI8Create_t)(HINSTANCE, DWORD, const GUID&, void**, void*);
 typedef HRESULT (STDMETHODCALLTYPE *DI_CreateDevice_t)(void*, const GUID&, void**, void*);
 typedef HRESULT (STDMETHODCALLTYPE *DI_GetDeviceState_t)(void*, DWORD, void*);
+typedef ULONG   (STDMETHODCALLTYPE *DI_Release_t)(void*);
+
+typedef LSTATUS (WINAPI *RegOpenKeyExW_t)(HKEY, LPCWSTR, DWORD, REGSAM, PHKEY);
+typedef LSTATUS (WINAPI *RegOpenKeyExA_t)(HKEY, LPCSTR, DWORD, REGSAM, PHKEY);
+typedef LSTATUS (WINAPI *RegQueryValueExW_t)(HKEY, LPCWSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+typedef LSTATUS (WINAPI *RegQueryValueExA_t)(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+typedef LSTATUS (WINAPI *RegGetValueW_t)(HKEY, LPCWSTR, LPCWSTR, DWORD, LPDWORD, PVOID, LPDWORD);
+typedef LSTATUS (WINAPI *RegGetValueA_t)(HKEY, LPCSTR, LPCSTR, DWORD, LPDWORD, PVOID, LPDWORD);
+typedef HANDLE  (WINAPI *OpenFileMappingW_t)(DWORD, BOOL, LPCWSTR);
+typedef LPVOID  (WINAPI *MapViewOfFile_t)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+typedef LONG    (WINAPI *ChangeDisplaySettingsW_t)(LPDEVMODEW, DWORD);
+typedef LONG    (WINAPI *ChangeDisplaySettingsExW_t)(LPCWSTR, LPDEVMODEW, HWND, DWORD, LPVOID);
+
+static volatile RegOpenKeyExW_t           g_chainRegOpenW       = nullptr;
+static volatile RegOpenKeyExA_t           g_chainRegOpenA       = nullptr;
+static volatile RegQueryValueExW_t        g_chainRegQueryW      = nullptr;
+static volatile RegQueryValueExA_t        g_chainRegQueryA      = nullptr;
+static volatile RegGetValueW_t            g_chainRegGetValueW   = nullptr;
+static volatile RegGetValueA_t            g_chainRegGetValueA   = nullptr;
+static volatile OpenFileMappingW_t        g_chainOpenFileMapW   = nullptr;
+static volatile MapViewOfFile_t           g_chainMapViewOfFile  = nullptr;
+static volatile ChangeDisplaySettingsW_t  g_chainChangeDispW    = nullptr;
+static volatile ChangeDisplaySettingsExW_t g_chainChangeDispExW = nullptr;
+
+static CRITICAL_SECTION g_winMapCs;
+static volatile LONG g_winMapCsInit = 0;
+static HANDLE g_winMapHandles[16] = {0};
+static int g_winMapN = 0;
+
+static void EnsureWinMapCs() {
+    if (InterlockedExchange(&g_winMapCsInit, 1) == 0)
+        InitializeCriticalSection(&g_winMapCs);
+}
+
+static void TrackWinMap(HANDLE h) {
+    if (!h) return;
+    EnterCriticalSection(&g_winMapCs);
+    bool found = false;
+    for (int i = 0; i < g_winMapN && !found; ++i) if (g_winMapHandles[i] == h) found = true;
+    if (!found && g_winMapN < 16) g_winMapHandles[g_winMapN++] = h;
+    LeaveCriticalSection(&g_winMapCs);
+}
+
+static bool IsTrackedWinMap(HANDLE h) {
+    if (!h) return false;
+    EnterCriticalSection(&g_winMapCs);
+    bool found = false;
+    for (int i = 0; i < g_winMapN && !found; ++i) if (g_winMapHandles[i] == h) found = true;
+    LeaveCriticalSection(&g_winMapCs);
+    return found;
+}
+
+static CRITICAL_SECTION g_ffxiKeyCs;
+static volatile LONG g_ffxiKeyCsInit = 0;
+static HKEY g_ffxiKeys[128] = {0};
+static int  g_ffxiKeyN = 0;
+static volatile LONG g_configReadFired = 0;
+
+static void EnsureFFXiKeyCs() {
+    if (InterlockedExchange(&g_ffxiKeyCsInit, 1) == 0)
+        InitializeCriticalSection(&g_ffxiKeyCs);
+}
+
+static bool IsFFXiSubA(const char* s) {
+    return s && (strstr(s, "PlayOnline") || strstr(s, "FinalFantasy")
+              || strstr(s, "SquareEnix") || strstr(s, "Square"));
+}
+static bool IsFFXiSubW(const wchar_t* s) {
+    return s && (wcsstr(s, L"PlayOnline") || wcsstr(s, L"FinalFantasy")
+              || wcsstr(s, L"SquareEnix") || wcsstr(s, L"Square"));
+}
+
+static void TrackFFXiKey(HKEY h) {
+    if (!h) return;
+    EnterCriticalSection(&g_ffxiKeyCs);
+    for (int i = 0; i < g_ffxiKeyN; ++i) if (g_ffxiKeys[i] == h) { LeaveCriticalSection(&g_ffxiKeyCs); return; }
+    if (g_ffxiKeyN < 128) g_ffxiKeys[g_ffxiKeyN++] = h;
+    LeaveCriticalSection(&g_ffxiKeyCs);
+}
+
+static bool IsTrackedFFXiKey(HKEY h) {
+    if (!h || (uintptr_t)h < 0x1000 || h == HKEY_LOCAL_MACHINE || h == HKEY_CURRENT_USER
+        || h == HKEY_CLASSES_ROOT || h == HKEY_USERS) return false;
+    EnterCriticalSection(&g_ffxiKeyCs);
+    bool found = false;
+    for (int i = 0; i < g_ffxiKeyN && !found; ++i) if (g_ffxiKeys[i] == h) found = true;
+    LeaveCriticalSection(&g_ffxiKeyCs);
+    return found;
+}
+
+// Old IAT-level diagnostic hook: just LOG when an FFXi-pathed read is seen.
+// Does NOT write CONFIG_READ status — that's reserved for the kernel-level
+// ntdll detour which detects the actual FinalFantasyXI key reads via
+// NtCreateKey-tracked handles. Firing CONFIG_READ from this path was wrong:
+// POL viewer reads `PlayOnlineUS\Interface\1000` (its own build string) very
+// early in boot, which would resolve the launch barrier long before the
+// dangerous FFXi-side bg-res read happens.
+static void FireConfigReadOnce(const char* origin, const char* valueName) {
+    if (InterlockedExchange(&g_configReadFired, 1) == 0) {
+        Log("FFXi-PATHED-READ (diagnostic only, NOT firing CONFIG_READ): origin=%s value='%s'",
+            origin, valueName ? valueName : "?");
+    }
+}
+
+static void FormatRegValue(char* out, size_t outSz, DWORD type, const BYTE* data, DWORD sz, LSTATUS r) {
+    out[0] = 0;
+    if (r != ERROR_SUCCESS || !data || sz == 0) return;
+    if ((type == REG_DWORD || type == REG_DWORD_BIG_ENDIAN) && sz >= 4) {
+        DWORD v = *(const DWORD*)data;
+        sprintf_s(out, outSz, "dword=%u (0x%X)", v, v);
+    } else if (type == REG_SZ || type == REG_EXPAND_SZ) {
+        DWORD n = sz < (DWORD)(outSz - 1) ? sz : (DWORD)(outSz - 1);
+        memcpy(out, data, n);
+        out[n] = 0;
+    } else {
+        DWORD n = sz < 16 ? sz : 16;
+        size_t p = 0;
+        for (DWORD i = 0; i < n && p + 4 < outSz; ++i) {
+            sprintf_s(out + p, outSz - p, "%02X ", data[i]);
+            p += 3;
+        }
+        if (sz > 16 && p + 4 < outSz) strcat_s(out, outSz, "...");
+    }
+}
+
+static LSTATUS WINAPI Hook_RegOpenKeyExW(HKEY hKey, LPCWSTR subKey, DWORD opt, REGSAM sam, PHKEY out) {
+    RegOpenKeyExW_t real = g_chainRegOpenW;
+    LSTATUS r = real ? real(hKey, subKey, opt, sam, out) : ERROR_INVALID_FUNCTION;
+    if (r == ERROR_SUCCESS && out && *out) {
+        bool track = (subKey && IsFFXiSubW(subKey)) || IsTrackedFFXiKey(hKey);
+        if (track) {
+            TrackFFXiKey(*out);
+            char buf[256] = "<null>";
+            if (subKey) WideCharToMultiByte(CP_UTF8, 0, subKey, -1, buf, sizeof(buf)-1, NULL, NULL);
+            Log("REG-OPEN-W: '%s' parent=0x%p new=0x%p caller=0x%p sam=0x%X",
+                buf, (void*)hKey, (void*)*out, _ReturnAddress(), (unsigned)sam);
+        }
+    }
+    return r;
+}
+
+static LSTATUS WINAPI Hook_RegOpenKeyExA(HKEY hKey, LPCSTR subKey, DWORD opt, REGSAM sam, PHKEY out) {
+    RegOpenKeyExA_t real = g_chainRegOpenA;
+    LSTATUS r = real ? real(hKey, subKey, opt, sam, out) : ERROR_INVALID_FUNCTION;
+    if (r == ERROR_SUCCESS && out && *out) {
+        bool track = (subKey && IsFFXiSubA(subKey)) || IsTrackedFFXiKey(hKey);
+        if (track) {
+            TrackFFXiKey(*out);
+            Log("REG-OPEN-A: '%s' parent=0x%p new=0x%p caller=0x%p sam=0x%X",
+                subKey ? subKey : "<null>", (void*)hKey, (void*)*out, _ReturnAddress(), (unsigned)sam);
+        }
+    }
+    return r;
+}
+
+static LSTATUS WINAPI Hook_RegQueryValueExW(HKEY h, LPCWSTR name, LPDWORD res, LPDWORD type, LPBYTE data, LPDWORD cb) {
+    RegQueryValueExW_t real = g_chainRegQueryW;
+    LSTATUS r = real ? real(h, name, res, type, data, cb) : ERROR_INVALID_FUNCTION;
+    if (IsTrackedFFXiKey(h)) {
+        char nm[128] = "<null>";
+        if (name) WideCharToMultiByte(CP_UTF8, 0, name, -1, nm, sizeof(nm)-1, NULL, NULL);
+        DWORD ty = type ? *type : 0;
+        DWORD sz = cb ? *cb : 0;
+        char val[160];
+        FormatRegValue(val, sizeof(val), ty, data, sz, r);
+        Log("REG-QUERY-W: key=0x%p name='%s' status=%ld type=%u size=%u val=[%s] caller=0x%p",
+            (void*)h, nm, r, ty, sz, val, _ReturnAddress());
+        if (r == ERROR_SUCCESS) FireConfigReadOnce("RegQueryValueExW", nm);
+    }
+    return r;
+}
+
+static LSTATUS WINAPI Hook_RegQueryValueExA(HKEY h, LPCSTR name, LPDWORD res, LPDWORD type, LPBYTE data, LPDWORD cb) {
+    RegQueryValueExA_t real = g_chainRegQueryA;
+    LSTATUS r = real ? real(h, name, res, type, data, cb) : ERROR_INVALID_FUNCTION;
+    if (IsTrackedFFXiKey(h)) {
+        DWORD ty = type ? *type : 0;
+        DWORD sz = cb ? *cb : 0;
+        char val[160];
+        FormatRegValue(val, sizeof(val), ty, data, sz, r);
+        Log("REG-QUERY-A: key=0x%p name='%s' status=%ld type=%u size=%u val=[%s] caller=0x%p",
+            (void*)h, name ? name : "<null>", r, ty, sz, val, _ReturnAddress());
+        if (r == ERROR_SUCCESS) FireConfigReadOnce("RegQueryValueExA", name);
+    }
+    return r;
+}
+
+static LSTATUS WINAPI Hook_RegGetValueW(HKEY hkey, LPCWSTR subKey, LPCWSTR value,
+                                         DWORD flags, LPDWORD type, PVOID data, LPDWORD cb) {
+    RegGetValueW_t real = g_chainRegGetValueW;
+    LSTATUS r = real ? real(hkey, subKey, value, flags, type, data, cb) : ERROR_INVALID_FUNCTION;
+    bool isFFXi = (subKey && IsFFXiSubW(subKey)) || IsTrackedFFXiKey(hkey);
+    if (isFFXi) {
+        char sk[256] = "<null>", vn[128] = "<null>";
+        if (subKey) WideCharToMultiByte(CP_UTF8, 0, subKey, -1, sk, sizeof(sk)-1, NULL, NULL);
+        if (value)  WideCharToMultiByte(CP_UTF8, 0, value,  -1, vn, sizeof(vn)-1, NULL, NULL);
+        DWORD ty = type ? *type : 0;
+        DWORD sz = cb ? *cb : 0;
+        char val[160];
+        FormatRegValue(val, sizeof(val), ty, (BYTE*)data, sz, r);
+        Log("REG-GET-W: subKey='%s' name='%s' status=%ld type=%u size=%u val=[%s] caller=0x%p",
+            sk, vn, r, ty, sz, val, _ReturnAddress());
+        if (r == ERROR_SUCCESS) FireConfigReadOnce("RegGetValueW", vn);
+    }
+    return r;
+}
+
+static LSTATUS WINAPI Hook_RegGetValueA(HKEY hkey, LPCSTR subKey, LPCSTR value,
+                                         DWORD flags, LPDWORD type, PVOID data, LPDWORD cb) {
+    RegGetValueA_t real = g_chainRegGetValueA;
+    LSTATUS r = real ? real(hkey, subKey, value, flags, type, data, cb) : ERROR_INVALID_FUNCTION;
+    bool isFFXi = (subKey && IsFFXiSubA(subKey)) || IsTrackedFFXiKey(hkey);
+    if (isFFXi) {
+        DWORD ty = type ? *type : 0;
+        DWORD sz = cb ? *cb : 0;
+        char val[160];
+        FormatRegValue(val, sizeof(val), ty, (BYTE*)data, sz, r);
+        Log("REG-GET-A: subKey='%s' name='%s' status=%ld type=%u size=%u val=[%s] caller=0x%p",
+            subKey ? subKey : "<null>", value ? value : "<null>",
+            r, ty, sz, val, _ReturnAddress());
+        if (r == ERROR_SUCCESS) FireConfigReadOnce("RegGetValueA", value);
+    }
+    return r;
+}
+
+static HANDLE WINAPI Hook_OpenFileMappingW(DWORD access, BOOL inherit, LPCWSTR name) {
+    OpenFileMappingW_t real = g_chainOpenFileMapW;
+    HANDLE h = real ? real(access, inherit, name) : nullptr;
+    if (name && wcsstr(name, L"Windower")) {
+        char buf[256] = "<null>";
+        WideCharToMultiByte(CP_UTF8, 0, name, -1, buf, sizeof(buf)-1, NULL, NULL);
+        Log("OFM-W: name='%s' access=0x%X result=0x%p lastErr=%lu caller=0x%p",
+            buf, (unsigned)access, h, h ? 0 : GetLastError(), _ReturnAddress());
+        if (h) TrackWinMap(h);
+    }
+    return h;
+}
+
+static LPVOID WINAPI Hook_MapViewOfFile(HANDLE h, DWORD access, DWORD offH, DWORD offL, SIZE_T n) {
+    MapViewOfFile_t real = g_chainMapViewOfFile;
+    LPVOID p = real ? real(h, access, offH, offL, n) : nullptr;
+    if (IsTrackedWinMap(h) && p) {
+        SIZE_T dumpLen = (n > 0 && n < 256) ? n : 256;
+        __try {
+            char hexBuf[800] = {0};
+            char asciiBuf[300] = {0};
+            int p1 = 0, p2 = 0;
+            const BYTE* bytes = (const BYTE*)p;
+            for (SIZE_T i = 0; i < dumpLen; ++i) {
+                if (p1 + 4 < (int)sizeof(hexBuf))
+                    p1 += sprintf_s(hexBuf + p1, sizeof(hexBuf) - p1, "%02X ", bytes[i]);
+                if (p2 + 2 < (int)sizeof(asciiBuf))
+                    asciiBuf[p2++] = (bytes[i] >= 0x20 && bytes[i] < 0x7F) ? bytes[i] : '.';
+            }
+            asciiBuf[p2] = 0;
+            Log("MVF: handle=0x%p map=0x%p reqSize=%zu", h, p, n);
+            Log("MVF: first%zu hex=[%s]", dumpLen, hexBuf);
+            Log("MVF: first%zu ascii=[%s]", dumpLen, asciiBuf);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            Log("MVF: handle=0x%p map=0x%p (read fault, no dump)", h, p);
+        }
+    }
+    return p;
+}
+
+static LONG WINAPI Hook_ChangeDisplaySettingsW(LPDEVMODEW devmode, DWORD flags) {
+    ChangeDisplaySettingsW_t real = g_chainChangeDispW;
+    if (devmode) {
+        Log("CDS-W: w=%lu h=%lu bpp=%lu freq=%lu fields=0x%X flags=0x%X caller=0x%p",
+            devmode->dmPelsWidth, devmode->dmPelsHeight,
+            devmode->dmBitsPerPel, devmode->dmDisplayFrequency,
+            (unsigned)devmode->dmFields, (unsigned)flags, _ReturnAddress());
+    } else {
+        Log("CDS-W: NULL devmode (reset) flags=0x%X caller=0x%p",
+            (unsigned)flags, _ReturnAddress());
+    }
+    return real ? real(devmode, flags) : DISP_CHANGE_FAILED;
+}
+
+static LONG WINAPI Hook_ChangeDisplaySettingsExW(LPCWSTR device, LPDEVMODEW devmode,
+                                                  HWND hwnd, DWORD flags, LPVOID param) {
+    ChangeDisplaySettingsExW_t real = g_chainChangeDispExW;
+    char devBuf[64] = "<null>";
+    if (device) WideCharToMultiByte(CP_UTF8, 0, device, -1, devBuf, sizeof(devBuf)-1, NULL, NULL);
+    if (devmode) {
+        Log("CDSEx-W: device='%s' w=%lu h=%lu bpp=%lu freq=%lu fields=0x%X flags=0x%X caller=0x%p",
+            devBuf, devmode->dmPelsWidth, devmode->dmPelsHeight,
+            devmode->dmBitsPerPel, devmode->dmDisplayFrequency,
+            (unsigned)devmode->dmFields, (unsigned)flags, _ReturnAddress());
+    } else {
+        Log("CDSEx-W: device='%s' NULL devmode (reset) flags=0x%X caller=0x%p",
+            devBuf, (unsigned)flags, _ReturnAddress());
+    }
+    return real ? real(device, devmode, hwnd, flags, param) : DISP_CHANGE_FAILED;
+}
+
+static void InitRegistryDiagnostic() {
+    EnsureFFXiKeyCs();
+    EnsureWinMapCs();
+    HMODULE adv = GetModuleHandleA("advapi32.dll");
+    HMODULE k32 = GetModuleHandleA("kernel32.dll");
+    HMODULE u32 = GetModuleHandleA("user32.dll");
+    if (!adv) adv = LoadLibraryA("advapi32.dll");
+    if (adv) {
+        g_chainRegOpenW     = (RegOpenKeyExW_t)   GetProcAddress(adv, "RegOpenKeyExW");
+        g_chainRegOpenA     = (RegOpenKeyExA_t)   GetProcAddress(adv, "RegOpenKeyExA");
+        g_chainRegQueryW    = (RegQueryValueExW_t)GetProcAddress(adv, "RegQueryValueExW");
+        g_chainRegQueryA    = (RegQueryValueExA_t)GetProcAddress(adv, "RegQueryValueExA");
+        g_chainRegGetValueW = (RegGetValueW_t)    GetProcAddress(adv, "RegGetValueW");
+        g_chainRegGetValueA = (RegGetValueA_t)    GetProcAddress(adv, "RegGetValueA");
+    }
+    if (k32) {
+        g_chainOpenFileMapW  = (OpenFileMappingW_t)GetProcAddress(k32, "OpenFileMappingW");
+        g_chainMapViewOfFile = (MapViewOfFile_t)   GetProcAddress(k32, "MapViewOfFile");
+    }
+    if (u32) {
+        g_chainChangeDispW   = (ChangeDisplaySettingsW_t)  GetProcAddress(u32, "ChangeDisplaySettingsW");
+        g_chainChangeDispExW = (ChangeDisplaySettingsExW_t)GetProcAddress(u32, "ChangeDisplaySettingsExW");
+    }
+    HMODULE windowerCore = GetModuleHandleA("windower.dll");
+    if (!windowerCore) windowerCore = GetModuleHandleA("core.dll");
+    Log("REG-DIAG: advapi32=0x%p chainW=0x%p chainA=0x%p windower-core=0x%p",
+        (void*)adv, (void*)g_chainRegQueryW, (void*)g_chainRegQueryA, (void*)windowerCore);
+    Log("REG-DIAG-EXT: regGetW=0x%p regGetA=0x%p ofm=0x%p mvf=0x%p cds=0x%p cdsEx=0x%p",
+        (void*)g_chainRegGetValueW, (void*)g_chainRegGetValueA,
+        (void*)g_chainOpenFileMapW, (void*)g_chainMapViewOfFile,
+        (void*)g_chainChangeDispW, (void*)g_chainChangeDispExW);
+}
+
+// ============================================================================
+// Kernel-level (ntdll) inline-detour diagnostic.
+//
+// Why: Windower's launcher writes per-profile FFXi resolution values into
+// HKLM\SOFTWARE\WOW6432Node\PlayOnlineUS\SquareEnix\FinalFantasyXI\0001-0004
+// before spawning pol.exe. pol.exe(A) reads those keys ~60s later during FFXi
+// initialization. If launcher B runs in between, A reads B's clobbered values
+// and renders at the wrong size.
+//
+// IAT hooks at advapi32/kernelbase do NOT catch FFXi's read on modern Windows
+// (procmon proved the call reaches the kernel; our IAT hooks never fired).
+// So we hook ntdll!NtQueryValueKey via inline detour — that's below every
+// user-mode layer and catches every kernel-bound registry read.
+//
+// On first FFXi-pathed value read we emit a CONFIG_READ status milestone so
+// Forest can use it as a serial-launch barrier.
+// ============================================================================
+
+typedef LONG    NT_STATUS_T;
+typedef LONG    NTSTATUS_T;
+#define NT_SUCCESS_OK(s) ((s) >= 0)
+
+typedef struct _UNI_STR { USHORT Length; USHORT MaxLen; PWSTR Buf; } UNI_STR;
+typedef struct _OBJ_ATTR {
+    ULONG Length; HANDLE Root; UNI_STR* Name;
+    ULONG Attr; PVOID SecDesc; PVOID SecQos;
+} OBJ_ATTR;
+
+typedef NTSTATUS_T (NTAPI *NtOpenKey_t)(PHANDLE, ACCESS_MASK, OBJ_ATTR*);
+typedef NTSTATUS_T (NTAPI *NtOpenKeyEx_t)(PHANDLE, ACCESS_MASK, OBJ_ATTR*, ULONG);
+typedef NTSTATUS_T (NTAPI *NtCreateKey_t)(PHANDLE, ACCESS_MASK, OBJ_ATTR*, ULONG, UNI_STR*, ULONG, PULONG);
+typedef NTSTATUS_T (NTAPI *NtQueryValueKey_t)(HANDLE, UNI_STR*, int, PVOID, ULONG, PULONG);
+typedef NTSTATUS_T (NTAPI *NtQueryKey_t)(HANDLE, int, PVOID, ULONG, PULONG);
+
+static NtOpenKey_t       g_origNtOpenKey       = nullptr;
+static NtOpenKeyEx_t     g_origNtOpenKeyEx     = nullptr;
+static NtCreateKey_t     g_origNtCreateKey     = nullptr;
+static NtQueryValueKey_t g_origNtQueryValueKey = nullptr;
+static NtQueryKey_t      g_origNtQueryKey      = nullptr;  // not detoured, just called
+
+static CRITICAL_SECTION g_ffxiHCs;
+static volatile LONG g_ffxiHCsInit = 0;
+static HANDLE g_ffxiHKeys[64] = {0};
+static int g_ffxiHKeyN = 0;
+static volatile LONG g_configReadKernelFired = 0;
+
+static void EnsureFFXiHCs() {
+    if (InterlockedExchange(&g_ffxiHCsInit, 1) == 0)
+        InitializeCriticalSection(&g_ffxiHCs);
+}
+
+static bool WStrContainsFinalFantasyXI(const wchar_t* p, int wlen) {
+    if (!p || wlen < 14) return false;
+    for (int i = 0; i <= wlen - 14; ++i) {
+        if (p[i] == L'F' && p[i+1] == L'i' && p[i+2] == L'n' && p[i+3] == L'a' &&
+            p[i+4] == L'l' && p[i+5] == L'F' && p[i+6] == L'a' && p[i+7] == L'n' &&
+            p[i+8] == L't' && p[i+9] == L'a' && p[i+10] == L's' && p[i+11] == L'y' &&
+            p[i+12] == L'X' && p[i+13] == L'I') return true;
+    }
+    return false;
+}
+
+static void TrackFFXiHKey(HANDLE h) {
+    if (!h) return;
+    EnsureFFXiHCs();
+    EnterCriticalSection(&g_ffxiHCs);
+    for (int i = 0; i < g_ffxiHKeyN; ++i)
+        if (g_ffxiHKeys[i] == h) { LeaveCriticalSection(&g_ffxiHCs); return; }
+    if (g_ffxiHKeyN < 64) g_ffxiHKeys[g_ffxiHKeyN++] = h;
+    LeaveCriticalSection(&g_ffxiHCs);
+}
+
+static bool IsTrackedFFXiHKey(HANDLE h) {
+    if (!h) return false;
+    EnterCriticalSection(&g_ffxiHCs);
+    bool found = false;
+    for (int i = 0; i < g_ffxiHKeyN && !found; ++i)
+        if (g_ffxiHKeys[i] == h) found = true;
+    LeaveCriticalSection(&g_ffxiHCs);
+    return found;
+}
+
+static void UntrackFFXiHKey(HANDLE h) {
+    if (!h) return;
+    EnsureFFXiHCs();
+    EnterCriticalSection(&g_ffxiHCs);
+    for (int i = 0; i < g_ffxiHKeyN; ++i) {
+        if (g_ffxiHKeys[i] == h) {
+            g_ffxiHKeys[i] = g_ffxiHKeys[--g_ffxiHKeyN];
+            break;
+        }
+    }
+    LeaveCriticalSection(&g_ffxiHCs);
+}
+
+// After an Nt key open succeeds, query its full path and check if it lives
+// under any FinalFantasyXI subtree. If yes, mark the handle as tracked.
+static void MaybeTrackFFXiHKey(HANDLE h) {
+    if (!h || !g_origNtQueryKey) return;
+    __try {
+        BYTE buf[1024];
+        ULONG resultLen = 0;
+        // KeyNameInformation = 3
+        NTSTATUS_T qr = g_origNtQueryKey(h, 3, buf, sizeof(buf), &resultLen);
+        if (NT_SUCCESS_OK(qr) && resultLen > sizeof(ULONG)) {
+            ULONG nameLen = *(ULONG*)buf;
+            const wchar_t* name = (const wchar_t*)(buf + sizeof(ULONG));
+            int wlen = (int)(nameLen / 2);
+            if (WStrContainsFinalFantasyXI(name, wlen)) {
+                TrackFFXiHKey(h);
+                char ascii[512] = {0};
+                int copyN = wlen < 510 ? wlen : 510;
+                WideCharToMultiByte(CP_UTF8, 0, name, copyN, ascii, sizeof(ascii)-1, NULL, NULL);
+                Log("KRN-OPEN-FFXI: handle=0x%p path='%s'", h, ascii);
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+// ============================================================================
+// BG-RES OVERRIDE (zero-overhead alternative to the launch-barrier wait).
+//
+// When `bgres_<pid>.txt` exists in the same folder as Trees.dll, Trees.dll
+// loads a map of FFXi-registry-value-name -> override-DWORD from it. Then
+// inside Detour_NtQueryValueKey, when pol.exe queries one of these values
+// on a FinalFantasyXI-tracked handle, we transparently overwrite the
+// returned DWORD with our profile-specific value. Result: pol.exe sees the
+// correct bg-res for its profile regardless of what the actual registry
+// contains (so concurrent Windower launches can clobber the registry freely
+// without consequence).
+//
+// Sidecar file format (plain text, one key=value per line):
+//   0001=2560
+//   0002=1400
+//   0003=2560
+//   0004=1400
+//   0037=1969
+//   0038=1076
+// ============================================================================
+
+#define BGRES_KEY_COUNT 64
+static volatile bool g_bgresLoaded = false;
+static int g_bgresN = 0;
+static int g_bgresKeyIdx[BGRES_KEY_COUNT] = {0};   // FFXi key index (parsed from "0001" etc.)
+static DWORD g_bgresValues[BGRES_KEY_COUNT] = {0};
+
+// Parse a UNICODE_STRING value name as a 4-digit FFXi key index ("0001" -> 1).
+// Returns -1 if not a 4-digit numeric.
+static int ParseFFXiKeyIndex(UNI_STR* vn) {
+    if (!vn || !vn->Buf) return -1;
+    int wlen = vn->Length / 2;
+    if (wlen < 4) return -1;
+    int val = 0;
+    for (int i = 0; i < 4; ++i) {
+        wchar_t c = vn->Buf[i];
+        if (c < L'0' || c > L'9') return -1;
+        val = val * 10 + (c - L'0');
+    }
+    if (wlen > 4 && vn->Buf[4] != 0) return -1;
+    return val;
+}
+
+static DWORD GetBgResOverride(int keyIdx, bool* found) {
+    *found = false;
+    for (int i = 0; i < g_bgresN; ++i) {
+        if (g_bgresKeyIdx[i] == keyIdx) {
+            *found = true;
+            return g_bgresValues[i];
+        }
+    }
+    return 0;
+}
+
+static bool TryLoadBgResSidecarOnce(const char* p, const char* fb) {
+    FILE* f = nullptr;
+    if (fopen_s(&f, p, "r") != 0 || !f) {
+        if (fopen_s(&f, fb, "r") != 0 || !f) return false;
+    }
+    char line[128];
+    while (fgets(line, sizeof(line), f) && g_bgresN < BGRES_KEY_COUNT) {
+        char keyStr[16] = {0};
+        unsigned val = 0;
+        if (sscanf_s(line, "%15[^=]=%u", keyStr, (unsigned)sizeof(keyStr), &val) == 2) {
+            int keyIdx = atoi(keyStr);
+            if (keyIdx >= 0 && keyIdx < 10000) {
+                g_bgresKeyIdx[g_bgresN] = keyIdx;
+                g_bgresValues[g_bgresN] = val;
+                g_bgresN++;
+                Log("BGRES-OVERRIDE: loaded key %04d = %u", keyIdx, val);
+            }
+        }
+    }
+    fclose(f);
+    return true;
+}
+
+// Async sidecar loader. Forest writes bgres_<pid>.txt after pol.exe spawns
+// but before Trees.dll's DllMain completes — there's a tiny race, plus a
+// potentially slow Forest write. Poll for up to 5 seconds.
+static DWORD WINAPI BgResSidecarLoaderThread(LPVOID) {
+    char p[MAX_PATH], fb[MAX_PATH];
+    PidPaths(p, fb, MAX_PATH, "bgres", "txt");
+    for (int i = 0; i < 50 && !g_bgresLoaded; ++i) {
+        if (TryLoadBgResSidecarOnce(p, fb)) {
+            g_bgresLoaded = (g_bgresN > 0);
+            Log("BGRES-OVERRIDE: %d overrides active for this pol.exe (took %d ms)",
+                g_bgresN, i * 100);
+            return 0;
+        }
+        Sleep(100);
+    }
+    Log("BGRES-OVERRIDE: no sidecar appeared within 5s (looked for %s and %s)", p, fb);
+    return 0;
+}
+
+// ============================================================================
+// IN_GAME milestone. Polls FFXi's "party global" pointer (already used by
+// AutoEnterThread's IsInGameNow): it stays null/junk during POL viewer + char
+// select, then becomes a valid pointer when the character is fully zoned in
+// with party data populated. That's the terminal "fully in game" state Forest
+// uses to gate auto-quit.
+//
+// Runs as its own thread so it works regardless of whether AutoLoginCharacter
+// is on. Doesn't write CONFIG_READ — that's a different signal (FFXi reading
+// bg-res from registry), handled elsewhere.
+// ============================================================================
+
+// Forward decls — real definitions live further down in the file alongside
+// the AutoEnter machinery.
+extern volatile uintptr_t g_partyG;
+static uintptr_t ResolveGlobalLE(HMODULE mod, const char* hexPat, const char* mask, int off);
+static bool IsInGameNow();
+
+static DWORD WINAPI InGameDetectorThread(LPVOID) {
+    // Wait for FFXiMain.dll to load + sig-scan g_partyG (the same global
+    // AutoEnterThread uses; whichever thread gets there first sets it).
+    HMODULE ff = nullptr;
+    for (int i = 0; i < 600 && !ff; ++i) {
+        ff = GetModuleHandleA("FFXiMain.dll");
+        if (!ff) Sleep(500);
+    }
+    if (!ff) {
+        Log("IN_GAME: FFXiMain.dll never loaded; poller giving up");
+        return 0;
+    }
+    if (!g_partyG) {
+        g_partyG = ResolveGlobalLE(ff,
+            "0FBEC38D0C5256578BF58D0448", "xxxxxxxxxxxxx", 23);
+    }
+    if (!g_partyG) {
+        Log("IN_GAME: party global sig-scan failed; poller can't watch");
+        return 0;
+    }
+    Log("IN_GAME: poller armed (partyG=0x%08X)", (unsigned)g_partyG);
+
+    // 3 consecutive positive polls (~1.5s) before firing, to avoid lobby/title flickers.
+    const int kStableThreshold = 3;
+    int positiveStreak = 0;
+    while (!g_inGameFired) {
+        if (IsInGameNow()) {
+            if (++positiveStreak >= kStableThreshold &&
+                InterlockedExchange(&g_inGameFired, 1) == 0)
+            {
+                WriteStatus("IN_GAME", "character fully zoned in");
+                Log("IN_GAME fired: character is in-game (party global stable for %d polls)", positiveStreak);
+                break;
+            }
+        } else {
+            if (positiveStreak > 0)
+                Log("IN_GAME: streak reset after %d positive poll(s)", positiveStreak);
+            positiveStreak = 0;
+        }
+        Sleep(500);
+    }
+
+    // Post-IN_GAME watchdog. 15s threshold survives normal zone loads;
+    // stops polling after 5 minutes of stable in-game time.
+    const int kDropStreakThreshold = 15;
+    const ULONGLONG kMaxWatchMillis = 5 * 60 * 1000;
+    ULONGLONG inGameSince = GetTickCount64();
+    int dropStreak = 0;
+    while (true) {
+        Sleep(1000);
+        if (GetTickCount64() - inGameSince > kMaxWatchMillis) {
+            Log("post-IN_GAME watchdog: stopping after %llus stable in-game time",
+                (GetTickCount64() - inGameSince) / 1000);
+            return 0;
+        }
+        if (IsInGameNow()) {
+            dropStreak = 0;
+        } else {
+            if (++dropStreak >= kDropStreakThreshold) {
+                WriteStatus("DISCONNECTED", "lost connection to world");
+                Log("DISCONNECTED fired: party global cleared for %d consecutive polls (%ds)",
+                    dropStreak, dropStreak);
+                return 0;
+            }
+        }
+    }
+}
+
+static NTSTATUS_T NTAPI Detour_NtOpenKey(PHANDLE handle, ACCESS_MASK access, OBJ_ATTR* attr) {
+    NtOpenKey_t fn = g_origNtOpenKey;
+    if (!fn) return -1;
+    NTSTATUS_T r = fn(handle, access, attr);
+    if (NT_SUCCESS_OK(r) && handle && *handle) MaybeTrackFFXiHKey(*handle);
+    return r;
+}
+
+static NTSTATUS_T NTAPI Detour_NtOpenKeyEx(PHANDLE handle, ACCESS_MASK access,
+                                            OBJ_ATTR* attr, ULONG opt) {
+    NtOpenKeyEx_t fn = g_origNtOpenKeyEx;
+    if (!fn) return -1;
+    NTSTATUS_T r = fn(handle, access, attr, opt);
+    if (NT_SUCCESS_OK(r) && handle && *handle) MaybeTrackFFXiHKey(*handle);
+    return r;
+}
+
+// NtCreateKey covers RegCreateKeyEx with REG_OPENED_EXISTING_KEY disposition,
+// which is the call pol.exe actually uses to open the FinalFantasyXI registry
+// key (verified via procmon trace). MUST be hooked or we never track the HKEY.
+static NTSTATUS_T NTAPI Detour_NtCreateKey(PHANDLE handle, ACCESS_MASK access,
+                                            OBJ_ATTR* attr, ULONG titleIdx,
+                                            UNI_STR* cls, ULONG createOpts,
+                                            PULONG dispos) {
+    NtCreateKey_t fn = g_origNtCreateKey;
+    if (!fn) return -1;
+    NTSTATUS_T r = fn(handle, access, attr, titleIdx, cls, createOpts, dispos);
+    if (NT_SUCCESS_OK(r) && handle && *handle) MaybeTrackFFXiHKey(*handle);
+    return r;
+}
+
+static NTSTATUS_T NTAPI Detour_NtQueryValueKey(HANDLE h, UNI_STR* vn, int cls,
+                                                PVOID info, ULONG len, PULONG result) {
+    NtQueryValueKey_t fn = g_origNtQueryValueKey;
+    if (!fn) return -1;
+    NTSTATUS_T r = fn(h, vn, cls, info, len, result);
+    if (IsTrackedFFXiHKey(h)) {
+        // BG-RES OVERRIDE: substitute the returned DWORD with our profile's
+        // value before returning to the caller. Only fires when:
+        //   - the sidecar file loaded an override for this FFXi key index
+        //   - the call succeeded and returned a KeyValuePartialInformation
+        //     buffer with REG_DWORD type and DataLength >= 4
+        // For everything else (other classes, non-DWORD types) we just pass
+        // through unchanged.
+        if (g_bgresLoaded && cls == 2 && NT_SUCCESS_OK(r) &&
+            info && result && *result >= 16)
+        {
+            int keyIdx = ParseFFXiKeyIndex(vn);
+            if (keyIdx >= 0) {
+                bool haveOverride = false;
+                DWORD ovr = GetBgResOverride(keyIdx, &haveOverride);
+                if (haveOverride) {
+                    __try {
+                        BYTE* p = (BYTE*)info;
+                        DWORD type = *(DWORD*)(p + 4);
+                        DWORD dataLen = *(DWORD*)(p + 8);
+                        if (type == REG_DWORD && dataLen >= 4) {
+                            DWORD oldVal = *(DWORD*)(p + 12);
+                            *(DWORD*)(p + 12) = ovr;
+                            Log("BGRES-APPLY: key %04d real=%u -> override=%u",
+                                keyIdx, oldVal, ovr);
+                        }
+                    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+                }
+            }
+        }
+        char nm[64] = "<null>";
+        if (vn && vn->Buf && vn->Length) {
+            int wlen = vn->Length / 2;
+            if (wlen > 62) wlen = 62;
+            WideCharToMultiByte(CP_UTF8, 0, vn->Buf, wlen, nm, sizeof(nm)-1, NULL, NULL);
+            nm[wlen < 63 ? wlen : 63] = 0;
+        }
+        // Try to read the returned DWORD value for visibility
+        DWORD dwVal = 0;
+        if (NT_SUCCESS_OK(r) && info && result && *result >= 16) {
+            // KEY_VALUE_PARTIAL_INFORMATION layout:
+            //   ULONG TitleIndex  (offset 0)
+            //   ULONG Type        (offset 4)
+            //   ULONG DataLength  (offset 8)
+            //   UCHAR Data[1]     (offset 12)
+            // class 2 = KeyValuePartialInformation
+            if (cls == 2) {
+                __try { dwVal = *(DWORD*)((BYTE*)info + 12); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
+        }
+        Log("KRN-QRY: handle=0x%p value='%s' status=0x%08X cls=%d dword=%u",
+            h, nm, (unsigned)r, cls, dwVal);
+        if (NT_SUCCESS_OK(r) &&
+            InterlockedExchange(&g_configReadKernelFired, 1) == 0)
+        {
+            char msg[128];
+            sprintf_s(msg, "FFXi kernel-read '%s' val=%u", nm, dwVal);
+            WriteStatus("CONFIG_READ", msg);
+            Log("CONFIG_READ kernel-fired: first read of '%s' (dword=%u) on tracked handle 0x%p",
+                nm, dwVal, h);
+        }
+    }
+    return r;
+}
+
+// (NtClose hook deliberately removed: too frequent, too risky for inline
+// detour; the FFXi handle set just accumulates closed handles, which is
+// bounded at 64 entries and not a correctness issue.)
+
+// Inline detour state — one entry per detoured function.
+struct InlineDetour {
+    void* target;
+    void* tramp;     // executable trampoline: original prologue + JMP back
+    BYTE  saved[16];
+    int   saved_len;
+};
+
+static InlineDetour g_inlineDetours[8];
+static volatile LONG g_inlineDetourN = 0;
+
+// Tiny prologue measurer — handles the instruction shapes we see at the top
+// of ntdll syscall stubs. Returns bytes consumed to cover >= 5 bytes worth
+// of complete instructions, or 0 on shapes we don't recognize.
+static int MeasureNtdllPrologue(const BYTE* p) {
+    int len = 0;
+    int safety = 0;
+    while (len < 5 && safety++ < 8) {
+        BYTE b = p[len];
+        // mov reg32, imm32  (0xB8..0xBF) — 5 bytes
+        if (b >= 0xB8 && b <= 0xBF) { len += 5; continue; }
+        // push reg  (0x50..0x57) — 1 byte
+        if (b >= 0x50 && b <= 0x57) { len += 1; continue; }
+        // mov edi, edi  (8B FF) — 2 bytes, classic hotpatch
+        if (b == 0x8B && p[len+1] == 0xFF) { len += 2; continue; }
+        // sub esp, imm8  (83 EC XX) — 3 bytes
+        if (b == 0x83 && (p[len+1] == 0xEC || p[len+1] == 0xC4)) { len += 3; continue; }
+        // xor reg, reg  (33 XX) — 2 bytes
+        if (b == 0x33) { len += 2; continue; }
+        // nop  (90) — 1 byte
+        if (b == 0x90) { len += 1; continue; }
+        // Unknown opcode — bail
+        return 0;
+    }
+    return len >= 5 ? len : 0;
+}
+
+// Install an inline detour. CRITICAL: writes *chainOut (the trampoline
+// pointer that the detour calls to invoke the original) BEFORE patching
+// the target, so any thread that hits the JMP and enters the detour finds
+// a non-null chain pointer to call. Returns true on success.
+static bool InstallInlineDetour(void* target, void* detour, void** chainOut) {
+    if (!target || !detour || !chainOut) return false;
+    LONG idx = InterlockedIncrement(&g_inlineDetourN) - 1;
+    if (idx >= 8) return false;
+    InlineDetour* d = &g_inlineDetours[idx];
+
+    BYTE* tgt = (BYTE*)target;
+    int len = MeasureNtdllPrologue(tgt);
+    if (len == 0 || len > 16) {
+        Log("InlineDetour FAIL: prologue measure failed at 0x%p (first bytes %02X %02X %02X %02X %02X)",
+            target, tgt[0], tgt[1], tgt[2], tgt[3], tgt[4]);
+        InterlockedDecrement(&g_inlineDetourN);
+        return false;
+    }
+
+    // Allocate trampoline: prologue bytes + 5-byte JMP back to target+len
+    BYTE* tramp = (BYTE*)VirtualAlloc(nullptr, len + 5, MEM_COMMIT | MEM_RESERVE,
+                                       PAGE_EXECUTE_READWRITE);
+    if (!tramp) {
+        Log("InlineDetour FAIL: VirtualAlloc tramp failed for 0x%p", target);
+        InterlockedDecrement(&g_inlineDetourN);
+        return false;
+    }
+
+    memcpy(tramp, tgt, len);
+    tramp[len] = 0xE9; // JMP rel32
+    int32_t relBack = (int32_t)((uintptr_t)(tgt + len) - (uintptr_t)(tramp + len + 5));
+    memcpy(tramp + len + 1, &relBack, 4);
+    FlushInstructionCache(GetCurrentProcess(), tramp, len + 5);
+
+    memcpy(d->saved, tgt, len);
+    d->saved_len = len;
+    d->target = target;
+    d->tramp = tramp;
+
+    // RACE FIX: publish the chain pointer BEFORE patching the target so the
+    // very first concurrent caller of the patched function finds a usable
+    // chain. On x86 a properly-aligned pointer write is atomic.
+    *chainOut = tramp;
+    MemoryBarrier();
+
+    // Patch target prologue: JMP detour, padded with NOPs
+    DWORD oldProt = 0;
+    if (!VirtualProtect(target, len, PAGE_EXECUTE_READWRITE, &oldProt)) {
+        Log("InlineDetour FAIL: VirtualProtect target failed for 0x%p", target);
+        *chainOut = nullptr;
+        VirtualFree(tramp, 0, MEM_RELEASE);
+        InterlockedDecrement(&g_inlineDetourN);
+        return false;
+    }
+    tgt[0] = 0xE9;
+    int32_t relFwd = (int32_t)((uintptr_t)detour - (uintptr_t)(tgt + 5));
+    memcpy(tgt + 1, &relFwd, 4);
+    for (int i = 5; i < len; ++i) tgt[i] = 0x90;
+    DWORD tmp = 0;
+    VirtualProtect(target, len, oldProt, &tmp);
+    FlushInstructionCache(GetCurrentProcess(), target, len);
+
+    Log("InlineDetour OK: target=0x%p detour=0x%p tramp=0x%p (saved %d bytes)",
+        target, detour, tramp, len);
+    return true;
+}
+
+static void InitKernelLevelDiagnostic() {
+    EnsureFFXiHCs();
+    // Spawn async loader so DllMain doesn't block waiting for Forest's write
+    CloseHandle(CreateThread(nullptr, 0, BgResSidecarLoaderThread, nullptr, 0, nullptr));
+    // Spawn the IN_GAME poller — always on, works regardless of AutoLogin
+    CloseHandle(CreateThread(nullptr, 0, InGameDetectorThread, nullptr, 0, nullptr));
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (!ntdll) { Log("KRN-DIAG: ntdll not loaded?!"); return; }
+
+    // Resolve real ntdll function pointers (we need NtQueryKey unhooked
+    // so we can use it inside our hooks)
+    g_origNtQueryKey = (NtQueryKey_t)GetProcAddress(ntdll, "NtQueryKey");
+
+    void* fnOpenKey       = GetProcAddress(ntdll, "NtOpenKey");
+    void* fnOpenKeyEx     = GetProcAddress(ntdll, "NtOpenKeyEx");
+    void* fnCreateKey     = GetProcAddress(ntdll, "NtCreateKey");
+    void* fnQueryValueKey = GetProcAddress(ntdll, "NtQueryValueKey");
+
+    if (fnOpenKey)
+        InstallInlineDetour(fnOpenKey, (void*)&Detour_NtOpenKey, (void**)&g_origNtOpenKey);
+    if (fnOpenKeyEx)
+        InstallInlineDetour(fnOpenKeyEx, (void*)&Detour_NtOpenKeyEx, (void**)&g_origNtOpenKeyEx);
+    if (fnCreateKey)
+        InstallInlineDetour(fnCreateKey, (void*)&Detour_NtCreateKey, (void**)&g_origNtCreateKey);
+    if (fnQueryValueKey)
+        InstallInlineDetour(fnQueryValueKey, (void*)&Detour_NtQueryValueKey, (void**)&g_origNtQueryValueKey);
+
+    Log("KRN-DIAG: ntdll=0x%p openKey-tramp=0x%p openKeyEx-tramp=0x%p createKey-tramp=0x%p queryValueKey-tramp=0x%p queryKey-real=0x%p",
+        (void*)ntdll, (void*)g_origNtOpenKey, (void*)g_origNtOpenKeyEx,
+        (void*)g_origNtCreateKey, (void*)g_origNtQueryValueKey, (void*)g_origNtQueryKey);
+}
 
 static DI_GetDeviceState_t g_realGetDevState = nullptr;
 static volatile bool g_injectActive = false;
@@ -1550,12 +2447,22 @@ static void PatchKeyboardGetState(const GUID& iid)
                 }
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        __try {
+            auto rel = (DI_Release_t)(*(void***)pDev)[2];
+            rel(pDev);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
+    __try {
+        auto relDI = (DI_Release_t)(*(void***)pDI)[2];
+        relDI(pDI);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
 static void RestoreKeyboardGetState()
 {
+    int restored = 0, failed = 0;
     for (int i = 0; i < g_diPatchN; ++i) {
+        bool ok = false;
         __try {
             DWORD op;
             if (VirtualProtect(&g_diPatches[i].vt[9], sizeof(uintptr_t),
@@ -1563,9 +2470,22 @@ static void RestoreKeyboardGetState()
                 g_diPatches[i].vt[9] = g_diPatches[i].orig;
                 DWORD t;
                 VirtualProtect(&g_diPatches[i].vt[9], sizeof(uintptr_t), op, &t);
+                ok = true;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (ok) {
+            ++restored;
+            Log("auto-enter: keyboard GetDeviceState RESTORED (vtbl=0x%p)",
+                (void*)g_diPatches[i].vt);
+        } else {
+            ++failed;
+            Log("auto-enter: keyboard GetDeviceState RESTORE FAILED (vtbl=0x%p) "
+                "- hook will remain on shared dinput8 vtable",
+                (void*)g_diPatches[i].vt);
+        }
     }
+    Log("auto-enter: RestoreKeyboardGetState done (restored=%d failed=%d total=%d)",
+        restored, failed, g_diPatchN);
     g_diPatchN = 0;
 }
 
@@ -1819,9 +2739,6 @@ static DWORD WINAPI AutoEnterThread(LPVOID)
 {
     for (int i = 0; i < 100 && !GetModuleHandleA("dinput8.dll"); ++i) Sleep(100);
     Sleep(1000);
-    PatchKeyboardGetState(kIID_IDirectInput8A);
-    PatchKeyboardGetState(kIID_IDirectInput8W);
-    bool hookOk = (g_realGetDevState != nullptr);
 
     char smk[MAX_PATH]; DllSibling(smk, MAX_PATH, "forest_sendinput.txt");
     bool sendAllowed = (GetFileAttributesA(smk) != INVALID_FILE_ATTRIBUTES);
@@ -1844,8 +2761,9 @@ static DWORD WINAPI AutoEnterThread(LPVOID)
     }
     int target = (g_charSlot < 1 ? 1 : g_charSlot) - 1;
     if (target > 15) target = 15;
-    Log("auto-enter: target slot %d (idx %d); hook=%d cur=0x%08X party=0x%08X",
-        target + 1, target, hookOk ? 1 : 0, (unsigned)g_curAddr, (unsigned)g_partyG);
+    Log("auto-enter: target slot %d (idx %d); cur=0x%08X party=0x%08X "
+        "(dinput patch deferred until keystroke fallback is needed)",
+        target + 1, target, (unsigned)g_curAddr, (unsigned)g_partyG);
     Sleep(1500);
 
     MenuGlobals mg{};
@@ -1853,6 +2771,7 @@ static DWORD WINAPI AutoEnterThread(LPVOID)
 
     bool done = false;
     const char* method = "none";
+    bool hookOk = false;
 
     if (menuOk) {
         Log("auto-enter: pure menu-memory login (autologin-style, no keystrokes), target idx %d.", target);
@@ -1860,11 +2779,16 @@ static DWORD WINAPI AutoEnterThread(LPVOID)
         if (done) method = "menu";
     }
 
-    if (!done && (hookOk || sendAllowed)) {
-        Log("auto-enter: %s; keystroke fallback.",
+    if (!done) {
+        Log("auto-enter: %s; keystroke fallback - patching dinput8 keyboard now.",
             menuOk ? "menu memory did not reach in-game" : "menu signatures unresolved");
-        if (hookOk) { g_injMethod = 0; done = RunBootNav(target); if (done) method = "hook"; }
-        if (!done && sendAllowed) { g_injMethod = 1; done = RunBootNav(target); if (done) method = "sendinput"; }
+        PatchKeyboardGetState(kIID_IDirectInput8A);
+        PatchKeyboardGetState(kIID_IDirectInput8W);
+        hookOk = (g_realGetDevState != nullptr);
+        if (hookOk || sendAllowed) {
+            if (hookOk) { g_injMethod = 0; done = RunBootNav(target); if (done) method = "hook"; }
+            if (!done && sendAllowed) { g_injMethod = 1; done = RunBootNav(target); if (done) method = "sendinput"; }
+        }
     }
 
     if (hookOk) RestoreKeyboardGetState();
@@ -1979,11 +2903,19 @@ static DWORD WINAPI PostConnectWatchdog(LPVOID)
         TerminateProcess(GetCurrentProcess(), 1);
     };
 
+    auto SafeWriteDone = [](const char* reason) {
+        if (g_inGameFired) {
+            Log("PostConnectWatchdog: %s, but IN_GAME already fired — suppressing DONE write", reason);
+            return;
+        }
+        if (!InterlockedExchange(&g_fastLoginDone, 1)) WriteStatus("DONE", "login complete");
+    };
+
     Sleep(10000);
-    if (g_fastLoginDone) return 0;
+    if (g_fastLoginDone || g_inGameFired) return 0;
     if (!PolWnd()) {
         Log("PostConnectWatchdog: POL window gone at +10s (login succeeded).");
-        if (!InterlockedExchange(&g_fastLoginDone, 1)) WriteStatus("DONE", "login complete");
+        SafeWriteDone("POL gone at +10s");
         return 0;
     }
     if (uint32_t hit = tryFindPOL5311()) { fireWrongPw(hit); return 0; }
@@ -1992,11 +2924,11 @@ static DWORD WINAPI PostConnectWatchdog(LPVOID)
         "for slow SE round-trip or late error display.");
     Sleep(20000);
 
-    if (g_fastLoginDone) return 0;
+    if (g_fastLoginDone || g_inGameFired) return 0;
     if (!PolWnd()) {
         Log("PostConnectWatchdog: POL window gone at +30s (slow login "
             "eventually succeeded).");
-        if (!InterlockedExchange(&g_fastLoginDone, 1)) WriteStatus("DONE", "login complete");
+        SafeWriteDone("POL gone at +30s");
         return 0;
     }
     if (uint32_t hit = tryFindPOL5311()) { fireWrongPw(hit); return 0; }
@@ -2584,6 +3516,8 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
                 g_fastLogin = true;
             }
         }
+        InitRegistryDiagnostic();
+        InitKernelLevelDiagnostic();
         InstallFakeFocusAllModules(hMod);
         InstallCbtHooks(hMod);
         CloseHandle(CreateThread(nullptr, 0, AttachEnumThread, nullptr, 0, nullptr));

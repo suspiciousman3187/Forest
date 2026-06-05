@@ -73,7 +73,3 @@ Download the latest release at https://github.com/suspiciousman3187/Forest/relea
 2. **Settings** — set your Windower and/or Ashita-cli executable path.
 3. **Add An Account(s)** — Name, SE password, PlayOnline member list slot slot, launcher type + profile (Windower)/boot config (Ashita).
 4. Tick the accounts you want and click **LAUNCH**.
-
-## Future Features
-
-Automate One-time-password (Security Token) handling.

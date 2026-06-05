@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import TitleBar from './TitleBar';
 import Home from './views/Home';
 import Settings from './views/Settings';
+import AutoLaunchSplash from './AutoLaunchSplash';
 import { Tip } from './ui';
 import { api, subscribe } from './bridge';
 import { syncScrollbarFromVar } from './scrollbar';
@@ -9,20 +10,55 @@ import { useTheme } from './theme';
 import { DEMO, demoSelection } from './demo';
 import type { Account, AccountStatus, Config } from './types';
 
-const VERSION = '1.2.2';
+const VERSION = '1.2.4';
 type Tab = 'home' | 'settings';
 
 export default function App() {
+  // Splash-mode gate. Bridge state arrives async; show splash if armed.
+  // We initialize from a single splash.armed call on mount, then track
+  // changes via the 'splashChanged' bridge event.
+  const [splash, setSplash] = useState<{ armed: boolean; watching: string[] } | null>(null);
+  useEffect(() => {
+    api.splashArmed().then(setSplash).catch(() => setSplash({ armed: false, watching: [] }));
+    return subscribe('splashChanged', (d: { armed: boolean; watching?: string[] }) =>
+      setSplash({ armed: !!d?.armed, watching: d?.watching ?? [] }));
+  }, []);
+
+  if (splash?.armed) {
+    return <AutoLaunchSplash watching={splash.watching} />;
+  }
+
+  return <FullApp />;
+}
+
+function FullApp() {
   const [tab, setTab] = useState<Tab>('home');
   const [theme] = useTheme();
   const [config, setConfigState] = useState<Config | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statuses, setStatuses] = useState<Record<string, AccountStatus>>({});
   const [selected, setSelected] = useState<Set<string>>(() => DEMO ? new Set(demoSelection) : new Set());
+  const [selHydrated, setSelHydrated] = useState(DEMO);
 
   useEffect(() => { syncScrollbarFromVar(); }, [theme]);
 
-  const refreshAccounts = useCallback(async () => { setAccounts(await api.listAccounts()); }, []);
+  // Serializes UI-initiated config writes; refreshAccounts drains it.
+  const configWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const queueConfigWrite = useCallback((patch: Partial<Config>) => {
+    const next = configWriteQueue.current.then(
+      () => api.setConfig(patch).catch(() => {})
+    );
+    configWriteQueue.current = next;
+    return next;
+  }, []);
+
+  const refreshAccounts = useCallback(async () => {
+    try { await configWriteQueue.current; } catch { }
+    const [accs, cfg] = await Promise.all([api.listAccounts(), api.getConfig()]);
+    setAccounts(accs);
+    setConfigState(cfg);
+    setSelected(new Set(cfg.selectedAccounts ?? []));
+  }, []);
 
   useEffect(() => {
     api.getConfig().then(setConfigState);
@@ -32,10 +68,31 @@ export default function App() {
       setStatuses(Object.fromEntries(l.map((s) => [s.profile, s]))));
   }, [refreshAccounts]);
 
+  // Hydrate the checkbox selection from config.selectedAccounts on the
+  // first config load. Subsequent config updates don't overwrite (the React
+  // state is the source of truth once hydrated; we persist back below).
+  useEffect(() => {
+    if (config && !selHydrated) {
+      setSelected(new Set(config.selectedAccounts ?? []));
+      setSelHydrated(true);
+    }
+  }, [config, selHydrated]);
+
   const patchConfig = useCallback(async (patch: Partial<Config>) => {
     setConfigState((c) => (c ? { ...c, ...patch } : c));
-    await api.setConfig(patch);
-  }, []);
+    await queueConfigWrite(patch);
+  }, [queueConfigWrite]);
+
+  const setSelectedPersisted: React.Dispatch<React.SetStateAction<Set<string>>> =
+    useCallback((updater) => {
+      setSelected((prev) => {
+        const next = typeof updater === 'function'
+          ? (updater as (p: Set<string>) => Set<string>)(prev)
+          : updater;
+        queueConfigWrite({ selectedAccounts: Array.from(next) });
+        return next;
+      });
+    }, [queueConfigWrite]);
 
   return (
     <div className="@container relative isolate h-full w-full flex flex-col overflow-hidden">
@@ -61,16 +118,10 @@ export default function App() {
       <main className="flex-1 min-h-0">
         <div key={tab} className="le-view h-full">
           {tab === 'home'
-            ? <Home accounts={accounts} statuses={statuses} config={config} refreshAccounts={refreshAccounts} sel={selected} setSel={setSelected} />
+            ? <Home accounts={accounts} statuses={statuses} config={config} refreshAccounts={refreshAccounts} sel={selected} setSel={setSelectedPersisted} />
             : <Settings config={config} patchConfig={patchConfig} />}
         </div>
       </main>
-
-      <footer className="shrink-0 flex items-center gap-2 px-3.5 py-1.5 bg-nav border-t border-line text-[10px] text-fg-4 tracking-wide">
-        <span className={`w-1.5 h-1.5 rounded-full ${config?.usePolProxy ? 'bg-emerald-400' : 'bg-red-500'}`} />
-        FAST LOGIN:&nbsp;
-        <span className={`font-bold ${config?.usePolProxy ? 'text-emerald-400' : 'text-red-400'}`}>{config?.usePolProxy ? 'ON' : 'OFF'}</span>
-      </footer>
     </div>
   );
 }

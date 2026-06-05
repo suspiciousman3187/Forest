@@ -23,8 +23,6 @@ export default function Settings({ config, patchConfig }:
     <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-2xl px-5 py-4">
       <Group title="LAUNCHER SETUP">
-        <PathRow label="Trees Directory" desc="Folder holding Trees.dll + waitinject.exe."
-          value={c.treesDir} browse={() => api.browse('dir')} save={(v) => patchConfig({ treesDir: v })} />
         <PathRow label="Windower Executable" desc="Path to Windower.exe."
           value={c.windowerExe} browse={() => api.browse('file', 'exe')} save={(v) => patchConfig({ windowerExe: v })} />
         <PathRow label="Ashita-cli Executable" desc="Path to Ashita-cli.exe (optional)."
@@ -35,18 +33,29 @@ export default function Settings({ config, patchConfig }:
         </Row>
       </Group>
 
-      <Group title="MULTI-ACCOUNT LAUNCH">
-        <Row label="Launch Style" desc="Faster lowers the stagger delay but may cause hangs.">
+      <Group title="LAUNCH BEHAVIOR">
+        <Row label="Multiple Account Launch Speed" desc="Faster lowers the stagger delay but may cause hangs.">
           <Segmented value={c.fastSequential ? 'fast' : 'regular'} onChange={(v) => patchConfig({ fastSequential: v === 'fast' })}
             options={[{ v: 'regular', label: 'Regular' }, { v: 'fast', label: 'Faster' }]} />
         </Row>
         <RowStacked label="Login Timeout" desc="Max seconds to wait for a login before marking it failed.">
           <Slider value={c.loginTimeoutSeconds} min={30} max={300} suffix="s" onChange={(v) => patchConfig({ loginTimeoutSeconds: v })} />
         </RowStacked>
+        <Row label="Launch Selected Accounts Automatically On Startup" desc="Automatically launches selected accounts on bootup.">
+          <Toggle on={c.launchSelectedOnStartup} onChange={(v) => patchConfig(
+            v ? { launchSelectedOnStartup: true }
+              : { launchSelectedOnStartup: false, launchMode: 'Full' }
+          )} />
+        </Row>
+        {c.launchSelectedOnStartup && (
+          <Row label="Simple Mode" desc="Launch selected accounts automatically on bootup, then close when all logins complete.">
+            <Toggle on={c.launchMode === 'Splash'} onChange={(v) => patchConfig({ launchMode: v ? 'Splash' : 'Full' })} />
+          </Row>
+        )}
       </Group>
 
-      <Group title="PLAYONLINE">
-        <Row label="Hide PlayOnline Window During Login" desc="Forest hides the POL window through the whole login.">
+      <Group title="PLAYONLINE LOGIN">
+        <Row label="Hide PlayOnline Window During Login" desc="Hides the PlayOnline Viewer window by moving it offscreen during the login process.">
           <Toggle on={c.hidePolWindow} onChange={(v) => patchConfig({ hidePolWindow: v })} />
         </Row>
         {!c.hidePolWindow && (
@@ -59,7 +68,7 @@ export default function Settings({ config, patchConfig }:
         </Row>
       </Group>
 
-      <Group title="AUTO CHARACTER LOGIN">
+      <Group title="INGAME CHARACTER LOGIN">
         <Row label="Log In Character Automatically" desc="Selects the account's ingame slot when FFXI starts.">
           <Toggle on={c.autoLoginCharacter} onChange={(v) => patchConfig({ autoLoginCharacter: v })} />
         </Row>
@@ -68,6 +77,21 @@ export default function Settings({ config, patchConfig }:
             <Toggle on={c.autoLoginSendInputFallback} onChange={(v) => patchConfig({ autoLoginSendInputFallback: v })} />
           </Row>
         )}
+      </Group>
+
+      <Group title="Multi-Launch Game Resolution Correction (Windower)">
+        <Row label="Fix FFXI Resolution On Launch (Recommended)" desc="Intercepts PlayOnline Viewer's registry read attempt and returns the correct values for the profile's game resolution.">
+          <Toggle on={c.overrideFFXiResolution} onChange={(v) => patchConfig({
+            overrideFFXiResolution: v,
+            ...(v ? { waitForFFXiRegistryReadBetweenLaunches: false } : {}),
+          })} />
+        </Row>
+        <Row label="Fix FFXI Resolution On Launch (Legacy)" desc="Wait until the registry reads the proper resolution before launching the next client in multi-launch sequences.">
+          <Toggle on={c.waitForFFXiRegistryReadBetweenLaunches} onChange={(v) => patchConfig({
+            waitForFFXiRegistryReadBetweenLaunches: v,
+            ...(v ? { overrideFFXiResolution: false } : {}),
+          })} />
+        </Row>
       </Group>
 
       <Group title="DIAGNOSTICS">
