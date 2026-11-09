@@ -43,3 +43,10 @@ POL-Proxy-main/
 *~
 *.bak
 Thumbs.db
+
+# --- local specs and plans (never committed) ----------------------------
+docs/superpowers/
+
+# --- native test and probe build output ----------------------------------
+trees/tests/out/
+trees/probe/out/

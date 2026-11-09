@@ -10,8 +10,10 @@ namespace Forest;
 
 public sealed class UpdateManager
 {
+    // This fork ships its own builds; upstream releases would replace the
+    // name-based POL login fix with upstream's binaries.
     public const string ManifestUrl =
-        "https://github.com/suspiciousman3187/Forest/releases/latest/download/manifest.json";
+        "https://github.com/AJHemmings/Forest/releases/latest/download/manifest.json";
 
     private static UpdateManager? _instance;
     public static UpdateManager Instance => _instance ??= new UpdateManager();

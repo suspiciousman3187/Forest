@@ -8,7 +8,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
-#include "Signatures.h"
+#include "PolLogin.h"
+#include "SafeMem.h"
 
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "user32.lib")
@@ -431,8 +432,41 @@ static BOOL CALLBACK EnumW(HWND h, LPARAM lp)
 }
 static uintptr_t       g_bp[3]    = { 0, 0, 0 };
 static uintptr_t       g_uiBase   = 0;
+static uint32_t        g_uiSize   = 0;
 static PVOID           g_veh      = nullptr;
 static uintptr_t       g_fnSelRow = 0;
+
+// Everything the navigator uses inside POL's UI module, found by class name
+// and code shape when Trees.dll loads (PolLogin.h). 0 = pending, 1 = ready,
+// -1 = POL's UI module was not recognised.
+static pollogin::Layout g_layout{};
+static volatile LONG    g_layoutState = 0;
+
+// Dry run (forest_dryrun.txt next to Trees.dll): follow the login screens and
+// log every step the navigator would take, but never press, type, select or
+// terminate anything. Used to check a new POL build safely.
+static bool g_dryRun = false;
+
+static bool InUiModule(uint32_t a)
+{
+    return g_uiBase && a >= g_uiBase && a < g_uiBase + g_uiSize;
+}
+
+// RTTI class name of a live POL object (e.g. "CPolTable"), for logs.
+static void ObjClassName(uint32_t obj, char* out, size_t cap)
+{
+    strcpy_s(out, cap, "?");
+    uint32_t vt, col, td;
+    if (!safemem::RawRead32(obj, &vt) || !InUiModule(vt)) return;
+    if (!safemem::RawRead32(vt - 4, &col) || !InUiModule(col)) return;
+    if (!safemem::RawRead32(col + 12, &td) || !InUiModule(td)) return;
+    char raw[96] = { 0 };
+    if (!safemem::RawCopy(td + 8, raw, sizeof(raw) - 1)) return;
+    const char* s = (strncmp(raw, ".?AV", 4) == 0) ? raw + 4 : raw;
+    size_t n = 0;
+    while (s[n] && s[n] != '@' && n + 1 < cap) { out[n] = s[n]; ++n; }
+    out[n] = 0;
+}
 
 static volatile uint32_t g_memberList = 0;
 static volatile uint32_t g_rowVtbl    = 0;
@@ -598,8 +632,8 @@ static void FlushSelRowRing(uint32_t base)
 
         uint32_t prevVt = LookupPrevVt(ecx);
         RecordVt(ecx, vt);
-        bool isAppDll  = (vt >= base && vt <= base + 0x600000);
-        bool wasAppDll = (prevVt >= base && prevVt <= base + 0x600000);
+        bool isAppDll  = InUiModule(vt);
+        bool wasAppDll = InUiModule(prevVt);
         if (prevVt && prevVt != vt && wasAppDll && !isAppDll) {
             char modName[MAX_PATH] = "(unknown)"; uintptr_t modBase = 0; DWORD modSize = 0;
             ResolveAddrToModule(vt, modName, sizeof(modName), &modBase, &modSize);
@@ -621,10 +655,12 @@ static void FlushSelRowRing(uint32_t base)
             }
         }
 
-        if (isAppDll)
-            Log("VEH-selRow: ecx=0x%08X row=%d vt-rva=0x%X%s",
-                ecx, (int)row, vt - base,
-                (vt == base + 0x33219C) ? "  <-- matches row-container vt 0x33219C" : "");
+        if (isAppDll) {
+            char cls[64]; ObjClassName(ecx, cls, sizeof(cls));
+            Log("VEH-selRow: ecx=0x%08X row=%d vt-rva=0x%X class=%s%s",
+                ecx, (int)row, vt - base, cls,
+                (vt == g_rowVtbl) ? "  <-- member rows table (CPolTable)" : "");
+        }
         else {
             char modName[MAX_PATH] = "(unknown)"; uintptr_t modBase = 0; DWORD modSize = 0;
             ResolveAddrToModule(vt, modName, sizeof(modName), &modBase, &modSize);
@@ -696,13 +732,9 @@ static LONG CALLBACK Veh(EXCEPTION_POINTERS* ep)
             __try { rowArg = *(uint32_t*)(cx->Esp + 4); }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
             VehCapture(self, rowArg);
-            uint32_t base = (uint32_t)g_uiBase;
             uint32_t vt = 0;
             __try { vt = *(uint32_t*)self; } __except (EXCEPTION_EXECUTE_HANDLER) {}
-            if (vt >= base && vt <= base + 0x600000) {
-                if (g_rowVtbl == 0) g_rowVtbl = vt;
-                if (vt == g_rowVtbl && g_memberList == 0) g_memberList = self;
-            }
+            if (vt && vt == g_rowVtbl && g_memberList == 0) g_memberList = self;
         }
         cx->Dr6 = 0;
         cx->EFlags |= 0x10000;
@@ -712,108 +744,195 @@ static LONG CALLBACK Veh(EXCEPTION_POINTERS* ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// ---- Login screen frames ---------------------------------------------------
+// While a login screen is open, POL keeps a pointer to its frame object in a
+// global inside the UI module, and clears it when the screen closes. Which
+// global differs per POL build, so each one is learned at runtime: the first
+// time a frame of the right class appears, the UI module's .data is searched
+// for the pointer that holds it.
+
+struct FrameSlot {
+    const char*   tag;
+    uint32_t      vtRva;      // frame class's primary vtable (from g_layout)
+    uint32_t      slotRva;    // learned global holding the frame, 0 until found
+    volatile LONG warnedForeign;
+};
+static FrameSlot g_slotMemberList  = { "B_MEMBERLIST" };
+static FrameSlot g_slotSubCommand  = { "B_SUBCMD" };
+static FrameSlot g_slotSoftKeyboard = { "B_SOFTKBD" };
+static uint32_t  g_dataLo = 0, g_dataHi = 0;   // UI module .data, as RVAs
+
+static void FindUiDataSection(uint32_t base)
+{
+    __try {
+        auto* nt = (IMAGE_NT_HEADERS32*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+        auto* sec = IMAGE_FIRST_SECTION(nt);
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i)
+            if (memcmp(sec[i].Name, ".data", 6) == 0) {
+                g_dataLo = sec[i].VirtualAddress;
+                g_dataHi = g_dataLo + sec[i].Misc.VirtualSize;
+            }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static bool AllFrameSlotsLearned()
+{
+    return g_slotMemberList.slotRva && g_slotSubCommand.slotRva && g_slotSoftKeyboard.slotRva;
+}
+
+static void LearnFrameSlots(uint32_t base)
+{
+    if (AllFrameSlotsLearned() || !g_dataLo) return;
+    FrameSlot* pending[3]; int np = 0;
+    for (FrameSlot* s : { &g_slotMemberList, &g_slotSubCommand, &g_slotSoftKeyboard })
+        if (!s->slotRva) pending[np++] = s;
+
+    safemem::Refresh();
+    for (uint32_t r = g_dataLo; r + 4 <= g_dataHi && np; r += 4) {
+        uint32_t obj, vt;
+        if (!safemem::RawRead32(base + r, &obj)) continue;
+        if (obj < 0x10000 || obj >= 0x7FFE0000 || InUiModule(obj)) continue;
+        if (!safemem::Read32(obj, &vt)) continue;
+        for (int i = 0; i < np; ++i) {
+            if (vt != base + pending[i]->vtRva) continue;
+            pending[i]->slotRva = r;
+            Log("frame slot learned: %s lives at %s+0x%X (frame=0x%08X)",
+                pending[i]->tag, (const char*)g_uiModuleName, r, obj);
+            pending[i] = pending[--np];
+            break;
+        }
+    }
+}
+
+// The frame currently held in a learned slot, or 0 when its screen is closed.
+static uint32_t FrameAt(uint32_t base, FrameSlot& s)
+{
+    if (!s.slotRva) return 0;
+    uint32_t o = 0, vt = 0;
+    __try {
+        o = *(uint32_t*)(base + s.slotRva);
+        if (o) vt = *(uint32_t*)o;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    if (!o) return 0;
+    if (vt == base + s.vtRva) return o;
+    // A hook (e.g. an Ashita polplugin) may have swapped in its own vtable.
+    if (vt && !InUiModule(vt)) {
+        if (InterlockedExchange(&s.warnedForeign, 1) == 0) {
+            char mn[MAX_PATH] = "(unknown)"; uintptr_t mb = 0; DWORD ms = 0;
+            ResolveAddrToModule(vt, mn, sizeof(mn), &mb, &ms);
+            Log("%s: frame has a foreign vtable 0x%08X (module=%s) - likely a POL "
+                "plugin hook. Accepting.", s.tag, vt, mn);
+        }
+        return o;
+    }
+    return 0;
+}
+
+// ---- Member list rows ------------------------------------------------------
+// The member rows are a CPolTable inside the member list frame (via a
+// CScrollTable). Found by searching the frame's fields for an object of that
+// class, up to three pointers deep; the path is remembered once found.
+
 static volatile uint32_t g_mlOff[3]  = { 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF };
 static volatile uint32_t g_mlInner    = 0;
 
 static void ProbeMemberListInner(uint32_t base)
 {
-    if (g_mlOff[0] != 0xFFFFFFFF) return;
+    if (g_mlOff[0] != 0xFFFFFFFF || !g_rowVtbl) return;
 
-    __try {
-        uint32_t frame = *(uint32_t*)(base + 0x5069C0);
-        if (!frame || frame < 0x10000 || frame > 0x7FFE0000) return;
-        if (*(uint32_t*)frame != base + 0x3CC4F4) return;
-        if (!(*(uint8_t*)(frame + 0xF4) & 1)) return;
+    // At most twice a second while the member list is open.
+    static ULONGLONG lastTry = 0;
+    ULONGLONG now = GetTickCount64();
+    if (now - lastTry < 500) return;
+    lastTry = now;
 
-        const uint32_t target = base + 0x33219C;
-        const uint32_t L1 = 0x400, L2 = 0x200, L3 = 0x100;
+    uint32_t frame = FrameAt(base, g_slotMemberList);
+    if (!frame) return;
 
-        auto looksLikePtr = [](uint32_t v) {
-            return v >= 0x10000 && v <= 0x7FFE0000;
-        };
+    // Each read is checked on its own, so a field that merely looks like a
+    // pointer is skipped instead of aborting the whole search.
+    safemem::Refresh();
+    const uint32_t L1 = 0x400, L2 = 0x300, L3 = 0x100;
+    auto field = [](uint32_t obj, uint32_t off) {
+        uint32_t v = 0; return safemem::Read32(obj + off, &v) ? v : 0u;
+    };
+    auto vtOf = [](uint32_t p) {
+        uint32_t vt = 0;
+        return (p >= 0x10000 && p < 0x7FFE0000 && safemem::Read32(p, &vt)) ? vt : 0u;
+    };
+    // The rows are the CPolTable held by one of the frame's own CScrollTables
+    // (how POL's member list code reaches them), so only paths through a
+    // CScrollTable count: not, say, a link up to the desktop window's focus.
+    const uint32_t scrollVt = (uint32_t)(g_uiBase + g_layout.vtScrollTable);
+    auto isRows   = [&](uint32_t p) { return vtOf(p) == g_rowVtbl; };
+    auto isObj    = [&](uint32_t p) { return InUiModule(vtOf(p)); };
+    auto isScroll = [&](uint32_t p) { return vtOf(p) == scrollVt; };
+    auto found = [&](uint32_t a, uint32_t b, uint32_t c, uint32_t rows, int depth, uint32_t via) {
+        g_mlOff[2] = c; g_mlOff[1] = b; g_mlOff[0] = a;
+        g_mlInner = rows;
+        char viaCls[64] = "-"; if (via) ObjClassName(via, viaCls, sizeof(viaCls));
+        char path[64];
+        if (depth == 1) sprintf_s(path, "+0x%X", a);
+        else if (depth == 2) sprintf_s(path, "+0x%X -> +0x%X", a, b);
+        else sprintf_s(path, "+0x%X -> +0x%X -> +0x%X", a, b, c);
+        Log("ML-INNER: FOUND member rows (CPolTable) 0x%08X at frame(0x%08X) %s (via %s)",
+            rows, frame, path, viaCls);
+    };
 
-        for (uint32_t a = 0; a < L1; a += 4) {
-            uint32_t fld = *(uint32_t*)(frame + a);
-            if (!looksLikePtr(fld)) continue;
-            if (*(uint32_t*)fld == target) {
-                g_mlOff[1] = 0xFFFFFFFF;
-                g_mlOff[2] = 0xFFFFFFFF;
-                g_mlOff[0] = a;
-                g_mlInner = fld;
-                Log("ML-INNER: FOUND depth-1: frame=0x%08X +0x%X -> "
-                    "inner=0x%08X (vt=base+0x33219C)", frame, a, fld);
-                return;
-            }
+    for (uint32_t a = 0; a < L1; a += 4)
+        if (isRows(field(frame, a))) { found(a, 0xFFFFFFFF, 0xFFFFFFFF, field(frame, a), 1, 0); return; }
+
+    for (uint32_t a = 0; a < L1; a += 4) {
+        uint32_t mid = field(frame, a);
+        if (!isScroll(mid)) continue;
+        for (uint32_t b = 0; b < L2; b += 4)
+            if (isRows(field(mid, b))) { found(a, b, 0xFFFFFFFF, field(mid, b), 2, mid); return; }
+    }
+
+    for (uint32_t a = 0; a < L1; a += 4) {
+        uint32_t mid = field(frame, a);
+        if (!isObj(mid)) continue;
+        for (uint32_t b = 0; b < L2; b += 4) {
+            uint32_t mid2 = field(mid, b);
+            if (!isScroll(mid2)) continue;
+            for (uint32_t c = 0; c < L3; c += 4)
+                if (isRows(field(mid2, c))) { found(a, b, c, field(mid2, c), 3, mid2); return; }
         }
+    }
 
-        for (uint32_t a = 0; a < L1; a += 4) {
-            uint32_t mid = *(uint32_t*)(frame + a);
-            if (!looksLikePtr(mid)) continue;
-            uint32_t mvt = *(uint32_t*)mid;
-            if (mvt < base || mvt > base + 0x600000) continue;
-            for (uint32_t b = 0; b < L2; b += 4) {
-                uint32_t fld = *(uint32_t*)(mid + b);
-                if (!looksLikePtr(fld)) continue;
-                if (*(uint32_t*)fld == target) {
-                    g_mlOff[2] = 0xFFFFFFFF;
-                    g_mlOff[1] = b;
-                    g_mlOff[0] = a;
-                    g_mlInner = fld;
-                    Log("ML-INNER: FOUND depth-2: frame+0x%X (mid=0x%08X) "
-                        "+0x%X -> inner=0x%08X", a, mid, b, fld);
-                    return;
-                }
-            }
-        }
-
-        for (uint32_t a = 0; a < L1; a += 4) {
-            uint32_t mid = *(uint32_t*)(frame + a);
-            if (!looksLikePtr(mid)) continue;
-            uint32_t mvt = *(uint32_t*)mid;
-            if (mvt < base || mvt > base + 0x600000) continue;
-            for (uint32_t b = 0; b < L2; b += 4) {
-                uint32_t mid2 = *(uint32_t*)(mid + b);
-                if (!looksLikePtr(mid2)) continue;
-                uint32_t mvt2 = *(uint32_t*)mid2;
-                if (mvt2 < base || mvt2 > base + 0x600000) continue;
-                for (uint32_t c = 0; c < L3; c += 4) {
-                    uint32_t fld = *(uint32_t*)(mid2 + c);
-                    if (!looksLikePtr(fld)) continue;
-                    if (*(uint32_t*)fld == target) {
-                        g_mlOff[2] = c;
-                        g_mlOff[1] = b;
-                        g_mlOff[0] = a;
-                        g_mlInner = fld;
-                        Log("ML-INNER: FOUND depth-3: frame+0x%X "
-                            "+0x%X +0x%X -> inner=0x%08X", a, b, c, fld);
-                        return;
-                    }
-                }
-            }
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {   }
+    static bool warned = false;
+    if (!warned) {
+        warned = true;
+        Log("ML-INNER: member rows table not found inside the member list frame "
+            "(0x%08X); will use the table POL itself selects on, if seen.", frame);
+    }
 }
 
 static uint32_t ResolveMemberListInner(uint32_t base)
 {
     if (g_mlOff[0] == 0xFFFFFFFF) return 0;
     __try {
-        uint32_t frame = *(uint32_t*)(base + 0x5069C0);
+        uint32_t frame = FrameAt(base, g_slotMemberList);
         if (!frame) return 0;
         uint32_t p = *(uint32_t*)(frame + g_mlOff[0]);
         if (g_mlOff[1] != 0xFFFFFFFF && p) p = *(uint32_t*)(p + g_mlOff[1]);
         if (g_mlOff[2] != 0xFFFFFFFF && p) p = *(uint32_t*)(p + g_mlOff[2]);
-        if (p && *(uint32_t*)p == base + 0x33219C) return p;
+        if (p && *(uint32_t*)p == g_rowVtbl) return p;
     } __except (EXCEPTION_EXECUTE_HANDLER) { }
     return 0;
 }
 
+// ---- Soft keyboard password entry -----------------------------------------
+// Mirrors what the soft keyboard's own buttons do: each character key inserts
+// into the password box at [[[skw+a]+b]+c], and OK calls apply then notify(1)
+// on the window. Offsets and functions come from g_layout.
+
 static uint32_t ResolveField(uint32_t skw)
 {
     bool k;
-    uint32_t a = Deref(skw + 0x18C, k); if (!k) return 0;
-    uint32_t b = Deref(a   + 0x228, k); if (!k) return 0;
-    uint32_t o = Deref(b   + 0x1BC, k); if (!k) return 0;
+    uint32_t a = Deref(skw + g_layout.fieldChain[0], k); if (!k) return 0;
+    uint32_t b = Deref(a   + g_layout.fieldChain[1], k); if (!k) return 0;
+    uint32_t o = Deref(b   + g_layout.fieldChain[2], k); if (!k) return 0;
     return o;
 }
 
@@ -824,10 +943,27 @@ static void FeedSoftKbdField(uint32_t skw, const wchar_t* chars, int n, const ch
         uint32_t fieldObj = ResolveField(skw);
         if (!fieldObj) { Log("nav: ResolveField failed (skw=0x%08X).", skw); return; }
         void** vt = *reinterpret_cast<void***>(fieldObj);
-        CharFeed feed = reinterpret_cast<CharFeed>(vt[0x14 / 4]);
-        for (int i = 0; i < n; ++i)
-        { uint16_t wc = (uint16_t)chars[i]; feed((void*)fieldObj, i, &wc); }
-        void* okThis = (void*)(skw - 0x2A8);
+        CharFeed feed = reinterpret_cast<CharFeed>(vt[g_layout.feedVtOff / 4]);
+        void* okThis = (void*)(skw - g_layout.softkeyListenerOff);
+
+        if (g_dryRun) {
+            char cls[64]; ObjClassName(fieldObj, cls, sizeof(cls));
+            Log("DRY: would type %d %s character(s) into box 0x%08X (class %s) via "
+                "%s+0x%X, then OK: apply %s+0x%X and notify(1) %s+0x%X on window 0x%08X.",
+                n, what, fieldObj, cls,
+                (const char*)g_uiModuleName, (unsigned)((uintptr_t)feed - g_uiBase),
+                (const char*)g_uiModuleName, (unsigned)(g_fnApply - g_uiBase),
+                (const char*)g_uiModuleName, (unsigned)(g_fnBfc - g_uiBase),
+                (uint32_t)(uintptr_t)okThis);
+            return;
+        }
+
+        for (int i = 0; i < n; ++i) {
+            // Same argument POL's own key handler builds: a 1-character string.
+            uint16_t ws[2] = { (uint16_t)chars[i], 0 };
+            feed((void*)fieldObj, i, ws);
+            SecureZeroMemory(ws, sizeof(ws));
+        }
         if (g_fnApply) ((ApplyFn)g_fnApply)(okThis);
         if (g_fnBfc)   ((NotifyFn)g_fnBfc)(okThis, 1);
         Log("nav: %s fed (%d) + OK dispatched (no hook).", what, n);
@@ -1433,6 +1569,30 @@ static LRESULT CALLBACK CbtHookProc(int code, WPARAM wParam, LPARAM lParam)
         Log("CBT-ACTIVATE: hwnd=0x%p class=[%s] tid=%lu", h, cls,
             GetCurrentThreadId());
     }
+    else if (code == HCBT_DESTROYWND && g_hideEnabled) {
+        // Which hidden top-level windows close, and in what order (once each:
+        // the hook can be installed several times per thread).
+        static volatile HWND lastLogged = nullptr;
+        HWND h = (HWND)wParam;
+        LONG style = GetWindowLongA(h, GWL_STYLE);
+        if (!(style & WS_CHILD) && InterlockedExchangePointer((PVOID*)&lastLogged, h) != h) {
+            char cls[64] = {0}, ttl[96] = {0};
+            GetClassNameA(h, cls, sizeof(cls));
+            GetWindowTextA(h, ttl, sizeof(ttl));
+            Log("CBT-DESTROY: hwnd=0x%p class=[%s] title=[%s] tid=%lu",
+                h, cls, ttl, GetCurrentThreadId());
+            if (strcmp(cls, "#32770") == 0) {
+                // A dialog's message lives in its child controls.
+                EnumChildWindows(h, [](HWND c, LPARAM) -> BOOL {
+                    char ccls[32] = {0}, txt[256] = {0};
+                    GetClassNameA(c, ccls, sizeof(ccls));
+                    GetWindowTextA(c, txt, sizeof(txt));
+                    if (txt[0]) Log("CBT-DESTROY:   [%s] \"%s\"", ccls, txt);
+                    return TRUE;
+                }, 0);
+            }
+        }
+    }
     return CallNextHookEx(NULL, code, wParam, lParam);
 }
 
@@ -1483,6 +1643,7 @@ static void CALLBACK WinEvCreateProc(HWINEVENTHOOK, DWORD ev, HWND h,
 {
     if (!h || idObject != OBJID_WINDOW) return;
     InterlockedIncrement(&g_winEvFires);
+    if (g_dryRun) return;   // dry run never moves windows
     if (!g_hideEnabled && !g_winEvLateActive) return;
     LONG style = GetWindowLongA(h, GWL_STYLE);
     if (style & WS_CHILD) return;
@@ -2383,6 +2544,8 @@ static int MeasureNtdllPrologue(const BYTE* p) {
         if (b >= 0x50 && b <= 0x57) { len += 1; continue; }
         // mov edi, edi  (8B FF) — 2 bytes, classic hotpatch
         if (b == 0x8B && p[len+1] == 0xFF) { len += 2; continue; }
+        // mov ebp, esp  (8B EC) — 2 bytes, standard frame setup
+        if (b == 0x8B && p[len+1] == 0xEC) { len += 2; continue; }
         // sub esp, imm8  (83 EC XX) — 3 bytes
         if (b == 0x83 && (p[len+1] == 0xEC || p[len+1] == 0xC4)) { len += 3; continue; }
         // xor reg, reg  (33 XX) — 2 bytes
@@ -2462,6 +2625,72 @@ static bool InstallInlineDetour(void* target, void* detour, void** chainOut) {
     return true;
 }
 
+// ---- Death capture ---------------------------------------------------------
+// When pol.exe exits on its own, log which code asked it to, as module+offset
+// return addresses found on the exiting thread's stack. Turns "POL just
+// closed" into a specific place in pol.exe / appEU.dll / a plugin to inspect.
+
+typedef VOID (NTAPI* RtlExitUserProcess_t)(LONG);
+typedef LONG (NTAPI* NtTerminateProcess_t)(HANDLE, LONG);
+static RtlExitUserProcess_t g_origRtlExitUserProcess = nullptr;
+static NtTerminateProcess_t g_origNtTerminateProcess = nullptr;
+static volatile LONG        g_deathLogged = 0;
+
+// True when the bytes before `ret` are a call instruction, i.e. `ret` is a
+// genuine return address rather than any number that happens to point at code.
+static bool FollowsCall(uint32_t ret)
+{
+    uint8_t b[7];
+    if (ret < 0x10000 || !safemem::RawCopy(ret - 7, b, sizeof(b))) return false;
+    if (b[2] == 0xE8) return true;                                   // call rel32
+    if (b[5] == 0xFF && (b[6] & 0xF8) == 0xD0) return true;          // call reg
+    if (b[4] == 0xFF && (b[5] & 0xF8) == 0x50) return true;          // call [reg+d8]
+    if (b[1] == 0xFF && (b[2] == 0x15 || (b[2] & 0xF8) == 0x90)) return true; // call [abs] / [reg+d32]
+    return false;
+}
+
+static void LogDeath(const char* how, LONG code, const void* stackFrom)
+{
+    if (InterlockedExchange(&g_deathLogged, 1)) return;
+    Log("DEATH: pol.exe exiting via %s (code 0x%08X) on tid=%lu; callers on the stack:",
+        how, (unsigned)code, GetCurrentThreadId());
+    uint32_t sp = (uint32_t)(uintptr_t)stackFrom;
+    int shown = 0;
+    for (int i = 0; i < 2048 && shown < 20; ++i) {
+        uint32_t v;
+        if (!safemem::RawRead32(sp + i * 4, &v)) break;
+        if (!FollowsCall(v)) continue;
+        char mod[MAX_PATH]; uintptr_t mb = 0; DWORD ms = 0;
+        if (!ResolveAddrToModule(v, mod, sizeof(mod), &mb, &ms)) continue;
+        const char* leaf = strrchr(mod, '\\'); leaf = leaf ? leaf + 1 : mod;
+        Log("DEATH:   [sp+0x%04X] %s+0x%X", i * 4, leaf, (unsigned)(v - mb));
+        ++shown;
+    }
+}
+
+static VOID NTAPI Detour_RtlExitUserProcess(LONG code)
+{
+    LogDeath("ExitProcess", code, &code);
+    g_origRtlExitUserProcess(code);
+}
+
+static LONG NTAPI Detour_NtTerminateProcess(HANDLE h, LONG code)
+{
+    if (h == nullptr || h == (HANDLE)-1 || GetProcessId(h) == GetCurrentProcessId())
+        LogDeath("TerminateProcess", code, &h);
+    return g_origNtTerminateProcess(h, code);
+}
+
+static void InstallDeathCapture()
+{
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (!ntdll) return;
+    if (void* f = GetProcAddress(ntdll, "RtlExitUserProcess"))
+        InstallInlineDetour(f, (void*)&Detour_RtlExitUserProcess, (void**)&g_origRtlExitUserProcess);
+    if (void* f = GetProcAddress(ntdll, "NtTerminateProcess"))
+        InstallInlineDetour(f, (void*)&Detour_NtTerminateProcess, (void**)&g_origNtTerminateProcess);
+}
+
 static void InitKernelLevelDiagnostic() {
     EnsureFFXiHCs();
     // Spawn async loader so DllMain doesn't block waiting for Forest's write
@@ -2492,6 +2721,8 @@ static void InitKernelLevelDiagnostic() {
     Log("KRN-DIAG: ntdll=0x%p openKey-tramp=0x%p openKeyEx-tramp=0x%p createKey-tramp=0x%p queryValueKey-tramp=0x%p queryKey-real=0x%p",
         (void*)ntdll, (void*)g_origNtOpenKey, (void*)g_origNtOpenKeyEx,
         (void*)g_origNtCreateKey, (void*)g_origNtQueryValueKey, (void*)g_origNtQueryKey);
+
+    InstallDeathCapture();
 }
 
 static DI_GetDeviceState_t g_realGetDevState = nullptr;
@@ -3047,6 +3278,7 @@ static DWORD WINAPI PostConnectWatchdog(LPVOID)
 
 static void PostKeyToPol(WORD vk)
 {
+    if (g_dryRun) { Log("DRY: would post key VK=0x%02X to POL", vk); return; }
     HWND h = PolWnd();
     if (!h) { Log("PostKey: POL window not found"); return; }
     UINT sc = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
@@ -3059,6 +3291,7 @@ static void PostKeyToPol(WORD vk)
 
 static bool StashWnd(bool announce)
 {
+    if (g_dryRun) return false;   // dry run never moves the POL window
     HWND h = PolWnd();
     if (!h) return false;
     RECT r;
@@ -3073,6 +3306,7 @@ static bool StashWnd(bool announce)
 
 static void RestorePolWnd()
 {
+    if (g_dryRun) { Log("DRY: would restore the POL window position"); return; }
     HWND h = PolWnd();
     if (!h) return;
     int x = g_polOrigSaved ? g_polOrigRect.left : 120;
@@ -3190,6 +3424,9 @@ static void DoStepAction(int step, uint32_t softkeywin, bool firstTime)
         int tgt = ReadTargetSlot();
         uint32_t base = (uint32_t)g_uiBase;
         uint32_t ml = ResolveMemberListInner(base);
+        if (ml && g_memberList && ml != g_memberList)
+            Log("nav: WARN member rows via frame (0x%08X) differ from the table POL "
+                "itself selected on (0x%08X).", ml, (uint32_t)g_memberList);
         if (!ml) ml = g_memberList;
 
         bool rescued = false;
@@ -3201,7 +3438,18 @@ static void DoStepAction(int step, uint32_t softkeywin, bool firstTime)
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {   }
 
-        if (ml && tgt > 0 && g_fnSelRow && g_rowVtbl) __try {
+        if (g_dryRun) {
+            char cls[64] = "-"; uint16_t cur = 0xFFFF;
+            if (ml) {
+                ObjClassName(ml, cls, sizeof(cls));
+                safemem::RawCopy(ml + 0x238, &cur, sizeof(cur));
+            }
+            Log("DRY: member list -> would select row %d (slot file %s) on rows table 0x%08X "
+                "(class %s, currently selected row %d) via select-row %s+0x%X, then press RETURN.",
+                tgt - 1, tgt > 0 ? "read" : "MISSING: no slot_<pid>.txt", ml, cls, (int)(int16_t)cur,
+                (const char*)g_uiModuleName, (unsigned)(g_fnSelRow - g_uiBase));
+        }
+        else if (ml && tgt > 0 && g_fnSelRow && g_rowVtbl) __try {
             if (*(uint32_t*)ml == g_rowVtbl) {
                 typedef void (__thiscall *SelRowFn)(void*, int, char, int);
                 SelRowFn selRow = (SelRowFn)g_fnSelRow;
@@ -3261,194 +3509,24 @@ static void DoStepAction(int step, uint32_t softkeywin, bool firstTime)
     }
 }
 
-static void LogFrameSlots(uint32_t base)
-{
-    static uint32_t seenVts[256] = { 0 };
-    static int      seenN        = 0;
-    static const struct { uint32_t lo, hi; } regions[] = {
-        { 0x4E0000, 0x4E2000 },
-        { 0x506000, 0x508000 },
-    };
-
-    __try {
-        for (auto& r : regions) {
-            for (uint32_t off = r.lo; off < r.hi; off += 4) {
-                uint32_t fr = *(uint32_t*)(base + off);
-                if (fr < 0x10000 || fr > 0x7FFE0000) continue;
-                uint32_t fvt = *(uint32_t*)fr;
-                if (fvt < base || fvt > base + 0x600000) continue;
-                uint32_t rva = fvt - base;
-
-                bool known = false;
-                for (int i = 0; i < seenN; ++i)
-                    if (seenVts[i] == rva) { known = true; break; }
-                if (known) continue;
-                if (seenN < 256) seenVts[seenN++] = rva;
-
-                uint8_t visByte = *(uint8_t*)(fr + 0xF4);
-                Log("FRAME-DISC: slot=app+0x%X this=0x%08X vtbl-rva=0x%X vis=%d",
-                    off, fr, rva, (visByte & 1));
-
-                for (int fidx = 0; fidx < 64; ++fidx) {
-                    uint32_t v = *(uint32_t*)(fr + fidx * 4);
-                    if (v == 5311) {
-                        Log("  *** POL-5311 FOUND at +0x%02X (val=0x%08X) ***",
-                            fidx * 4, v);
-                    }
-                    if (fidx < 16 && v != 0)
-                        Log("  +0x%02X = 0x%08X (%d)", fidx * 4, v, (int32_t)v);
-                }
-
-                for (int row = 0; row < 16; ++row) {
-                    char line[160]; int p = 0;
-                    p += sprintf_s(line + p, sizeof(line) - p,
-                                   "  hex +0x%02X:", row * 16);
-                    for (int col = 0; col < 16; ++col) {
-                        uint8_t b = *(uint8_t*)(fr + row * 16 + col);
-                        p += sprintf_s(line + p, sizeof(line) - p, " %02X", b);
-                    }
-                    Log("%s", line);
-                }
-            }
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {   }
-}
-
-static void ScanForErrorFrames(uint32_t base)
-{
-    static const uint32_t kCandidateVts[] = {
-        0x3CE96C, 0x3CE960, 0x3CE954,
-        0x3CCBDC, 0x3CCBD4, 0x3CCBC8,
-    };
-    static uint32_t seenThis[64] = { 0 };
-    static int      seenN       = 0;
-
-    for (uint32_t vtRva : kCandidateVts) {
-        uint32_t hits[32];
-        int n = ScanAllHeapForVtable(base + vtRva, hits, 32);
-        for (int i = 0; i < n; ++i) {
-            uint32_t obj = hits[i];
-            if (obj >= base && obj < base + 0x600000) continue;
-
-            bool known = false;
-            for (int k = 0; k < seenN; ++k)
-                if (seenThis[k] == obj) { known = true; break; }
-            if (known) continue;
-            if (seenN < 64) seenThis[seenN++] = obj;
-
-            __try {
-                uint8_t vis = *(uint8_t*)(obj + 0xF4) & 1;
-                Log("ERR-FRAME: vt-rva=0x%X this=0x%08X vis=%d",
-                    vtRva, obj, vis);
-                for (int fidx = 0; fidx < 32; ++fidx) {
-                    uint32_t v = *(uint32_t*)(obj + fidx * 4);
-                    if (v == 5311) {
-                        Log("  *** POL-5311 FOUND at +0x%02X (val=0x%08X) ***",
-                            fidx * 4, v);
-                    }
-                }
-                for (int row = 0; row < 8; ++row) {
-                    char line[160]; int p = 0;
-                    p += sprintf_s(line + p, sizeof(line) - p,
-                                   "  +0x%02X:", row * 16);
-                    for (int col = 0; col < 16; ++col) {
-                        uint8_t b = *(uint8_t*)(obj + row * 16 + col);
-                        p += sprintf_s(line + p, sizeof(line) - p, " %02X", b);
-                    }
-                    Log("%s", line);
-                }
-                for (uint32_t off = 0x100; off <= 0x200; off += 4) {
-                    uint32_t pstr = *(uint32_t*)(obj + off);
-                    if (pstr < 0x00100000 || pstr > 0x7FFE0000) continue;
-                    __try {
-                        wchar_t nm[40] = { 0 };
-                        for (int ci = 0; ci < 39; ++ci) {
-                            uint16_t wc = *(uint16_t*)(pstr + ci * 2);
-                            if (!wc) break;
-                            nm[ci] = (wchar_t)wc;
-                        }
-                        if (nm[0])
-                            Log("  +0x%03X -> string [%.39ls]", off, nm);
-                    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-                }
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                Log("ERR-FRAME: SEH dumping obj=0x%08X", obj);
-            }
-        }
-    }
-}
-
-static DWORD WINAPI FrameDiscoveryThread(LPVOID)
-{
-    HMODULE ui = nullptr;
-    for (int i = 0; i < 400; ++i) {
-        ui = FindPolUi();
-        if (ui) break;
-        Sleep(150);
-    }
-    if (!ui) return 0;
-    MODULEINFO mi{};
-    GetModuleInformation(GetCurrentProcess(), ui, &mi, sizeof(mi));
-    uint32_t base = (uint32_t)(uintptr_t)mi.lpBaseOfDll;
-
-    Sleep(750);
-    Log("FrameDiscovery: starting 10-min observation (independent thread).");
-
-    for (int t = 0; t < 600 && g_hideEnabled; ++t) {
-        LogFrameSlots(base);
-        ScanForErrorFrames(base);
-        Sleep(1000);
-    }
-    Log("FrameDiscovery: observation window ended (t=%dx1s).",
-        g_hideEnabled ? 600 : -1);
-    return 0;
-}
-
-// Helper: detect a POL dialog at *slot. Strict-vt match first; if a foreign
-// vt is present (e.g. Ashita extraslots polplugin which hooks polcore and
-// replaces dialog vtables), fall back to vt!=0 + flag-bit-set. Logs a one-
-// shot warning the first time a loose match fires per dialog (so trees.log
-// names the hook module owning the foreign vt). Returns the dialog object
-// pointer for callers that need to read further fields (softkeywin), or 0.
-static uint32_t MatchPolDialog(uint32_t slot, uint32_t expectedVt,
-                                volatile LONG* warnedOnce, const char* tag)
-{
-    uint32_t o = *(uint32_t*)slot;
-    if (!o) return 0;
-    uint32_t vt = *(uint32_t*)o;
-    bool flag = (*(uint8_t*)(o + 0xF4) & 1) != 0;
-    if (vt == expectedVt && flag) return o;
-    if (vt != 0 && flag) {
-        if (InterlockedExchange((LONG*)warnedOnce, 1) == 0) {
-            char mn[MAX_PATH] = "(unknown)"; uintptr_t mb = 0; DWORD ms = 0;
-            ResolveAddrToModule(vt, mn, sizeof(mn), &mb, &ms);
-            Log("ZeroScanMask: %s loose-matched with foreign vt=0x%08X (module=%s, base=0x%08X, offset=0x%X) — likely an Ashita polplugin hooking polcore. Accepting.",
-                tag, vt, mn, (unsigned)mb, mb ? (unsigned)(vt - mb) : 0u);
-        }
-        return o;
-    }
-    return 0;
-}
-
+// Which login screens are open, from the learned frame slots. A slot holds
+// its frame only while that screen is open, so presence is the signal.
 static int ZeroScanMask(uint32_t base, uint32_t& softkeywin)
 {
     softkeywin = 0;
     int mask = 0;
     __try {
-        static volatile LONG warnedML = 0, warnedSC = 0, warnedSK = 0;
-        if (MatchPolDialog(base + 0x5069C0, base + 0x3CC4F4, &warnedML, "B_MEMBERLIST"))
-            mask |= B_MEMBERLIST;
-        if (MatchPolDialog(base + 0x5069C8, base + 0x3CCE2C, &warnedSC, "B_SUBCMD"))
-            mask |= B_SUBCMD;
-        uint32_t o = MatchPolDialog(base + 0x4E109C, base + 0x321CCC, &warnedSK, "B_SOFTKBD");
+        if (FrameAt(base, g_slotMemberList)) mask |= B_MEMBERLIST;
+        if (FrameAt(base, g_slotSubCommand)) mask |= B_SUBCMD;
+        uint32_t o = FrameAt(base, g_slotSoftKeyboard);
         if (o) {
             mask |= B_SOFTKBD;
-            uint32_t sk = o + 0x2A8;
-            // Strict inner-vt match preferred; if dialog's vt was already
-            // loose-matched, the inner control's vt is almost certainly
-            // also foreign, so set softkeywin unconditionally and rely on
-            // FeedSoftKbdField's __except to swallow any failures.
-            if (*(uint32_t*)sk == base + 0x321CB8 || warnedSK) softkeywin = sk;
+            uint32_t sk = o + g_layout.softkeyListenerOff;
+            // Strict listener-vtable match preferred; if a hook swapped the
+            // window's vtable, the listener's is likely foreign too, so accept
+            // it and rely on FeedSoftKbdField's __except to catch failures.
+            if (*(uint32_t*)sk == base + g_layout.vtSoftkeyListener ||
+                g_slotSoftKeyboard.warnedForeign) softkeywin = sk;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
     return mask;
@@ -3465,9 +3543,30 @@ static DWORD WINAPI StateObserver(LPVOID)
     if (!ui) return 0;
     MODULEINFO mi{}; GetModuleInformation(GetCurrentProcess(), ui, &mi, sizeof(mi));
     uint32_t base = (uint32_t)(uintptr_t)mi.lpBaseOfDll;
-    Log("Navigator: %s base=0x%08X (zero-scan: per-frame globals)", (const char*)g_uiModuleName, base);
 
-    static const int NEED[5] = { 1, 4, 14, 3, 3 };
+    // Worker resolves POL's layout; nothing below works without it.
+    for (int i = 0; i < 1800 && g_layoutState == 0; ++i) Sleep(50);
+    if (g_layoutState != 1) {
+        Log("Navigator: POL layout not recognised; the login cannot be driven.");
+        if (!g_dryRun) {
+            Log("Navigator: terminating pol.exe (no keystroke fallback by user policy).");
+            Sleep(750);
+            TerminateProcess(GetCurrentProcess(), 1);
+        }
+        return 0;
+    }
+    FindUiDataSection(base);
+    g_slotMemberList.vtRva   = g_layout.vtMemberList;
+    g_slotSubCommand.vtRva   = g_layout.vtSubCommand;
+    g_slotSoftKeyboard.vtRva = g_layout.vtSoftKeyboard;
+    Log("Navigator: %s base=0x%08X .data=+0x%X..+0x%X (frame slots learned by class name)%s",
+        (const char*)g_uiModuleName, base, g_dataLo, g_dataHi,
+        g_dryRun ? "  DRY RUN: observing only" : "");
+
+    // Ticks (~25 ms) a screen must stay open before acting on it. The member
+    // list frame is registered slightly before the list accepts input, so it
+    // gets ~0.3 s to settle (the old visible-flag check gave the same wait).
+    static const int NEED[5] = { 12, 4, 14, 3, 3 };
     int  step = 0, stable = 0, prevMask = -1;
     bool acted = false, hidden = false; int retries = 0; ULONGLONG actMs = 0;
     const ULONGLONG RETRY_MS = 1500;
@@ -3478,6 +3577,9 @@ static DWORD WINAPI StateObserver(LPVOID)
     ULONGLONG loopStart = GetTickCount64();
     for (int tick = 0; tick < 20000 && step < 5; ++tick)
     {
+        // Every ~250 ms until each screen's slot is known (first time it opens).
+        if (tick % 10 == 0 && !AllFrameSlotsLearned()) LearnFrameSlots(base);
+
         ProbeMemberListInner(base);
 
         FlushSelRowRing(base);
@@ -3565,17 +3667,17 @@ static DWORD WINAPI StateObserver(LPVOID)
             TeardownHooks();
             Log("hide: disabled (DONE) — game window will be visible.");
         } else if (GetTickCount64() - actMs >= RETRY_MS) {
-#if DIAG_CAPTURE_FIRE
-            static ULONGLONG lastReminder = 0;
-            ULONGLONG now = GetTickCount64();
-            if (now - lastReminder > 15000) {
-                Log("nav: DIAG waiting for user input on step %d "
-                    "(focus POL window, press Enter)", step);
-                lastReminder = now;
+            if (DIAG_CAPTURE_FIRE || g_dryRun) {
+                // Observation modes: POL is stepped through by hand.
+                static ULONGLONG lastReminder = 0;
+                ULONGLONG now = GetTickCount64();
+                if (now - lastReminder > 15000) {
+                    Log("nav: waiting for you on step %d (step through POL by hand)", step);
+                    lastReminder = now;
+                }
+                actMs = now;
             }
-            actMs = now;
-#else
-            if (++retries <= 19) {
+            else if (++retries <= 19) {
                 Log("nav: step %d no transition in %llums -> retry %d",
                     step, RETRY_MS, retries);
                 WriteStatus("RETRY", "re-attempting current screen");
@@ -3587,7 +3689,6 @@ static DWORD WINAPI StateObserver(LPVOID)
                 WriteStatus("FAILED", "no transition after retries");
                 break;
             }
-#endif
         }
         Sleep(25);
     }
@@ -3601,6 +3702,12 @@ static DWORD WINAPI StateObserver(LPVOID)
         SecureZeroMemory(g_totpSecret, sizeof(g_totpSecret));
         g_haveTotp = false;
         Log("Navigator: TOTP seed wiped from process memory (exit safety net).");
+    }
+
+    if (g_dryRun) {
+        Log("Navigator: DRY RUN finished (reached step %d of 5). Not terminating; "
+            "close POL yourself.", step);
+        return 0;
     }
 
     if (ok) {
@@ -3623,7 +3730,8 @@ static DWORD WINAPI StateObserver(LPVOID)
 
 static DWORD WINAPI Worker(LPVOID)
 {
-    Log("Trees.dll injected (stage 4a+: chain hook + HW-bp ABI capture).");
+    Log("Trees.dll injected (name-based POL layout%s).",
+        g_dryRun ? "; DRY RUN: observe and log only" : "");
     LogLoadedModules();
     WriteStatus("INJECTED", "helper attached");
 
@@ -3633,47 +3741,51 @@ static DWORD WINAPI Worker(LPVOID)
         if (ui) break;
         Sleep(150);
     }
-    if (!ui) { Log("ERROR: POL UI module (app.dll / appEU.dll) never loaded."); return 0; }
+    if (!ui) {
+        Log("ERROR: POL UI module (app.dll / appEU.dll) never loaded.");
+        InterlockedExchange(&g_layoutState, -1);
+        return 0;
+    }
 
     MODULEINFO mi{};
     GetModuleInformation(GetCurrentProcess(), ui, &mi, sizeof(mi));
     auto base = reinterpret_cast<uintptr_t>(mi.lpBaseOfDll);
+    const char* uiName = (const char*)g_uiModuleName;
+    auto* nt = (IMAGE_NT_HEADERS32*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
 
-    uint8_t* hit = ScanModule(ui, SIG_SOFTKEY_HANDLER);
-    if (!hit) { Log("FAIL: soft-key handler signature not found."); return 0; }
-    Log("soft-key handler @ 0x%08X (%s+0x%X)",
-        (unsigned)(uintptr_t)hit, (const char*)g_uiModuleName, (unsigned)((uintptr_t)hit - base));
-
-    static const uint8_t okpat[] = { 0x8B, 0xCE, 0x6A, 0x01, 0xE8 };
-    uint8_t* ok = nullptr;
-    for (uint8_t* p = hit; p < hit + 0x400; ++p)
-        if (!memcmp(p, okpat, sizeof(okpat))) { ok = p; break; }
-    if (!ok) { Log("FAIL: OK-dispatch pattern not found."); return 0; }
-
-    uint8_t* callBfc = ok + 4;
-    int32_t relBfc; memcpy(&relBfc, callBfc + 1, 4);
-    g_fnBfc = (uintptr_t)(callBfc + 5) + relBfc;
-
-    uint8_t* callApply = ok - 5;
-    if (*callApply == 0xE8) {
-        int32_t relA; memcpy(&relA, callApply + 1, 4);
-        g_fnApply = (uintptr_t)(callApply + 5) + relA;
+    // Find every login piece in this POL build by class name and code shape.
+    ULONGLONG t0 = GetTickCount64();
+    pollogin::Layout L{};
+    polrtti::Image view{ reinterpret_cast<const uint8_t*>(base), mi.SizeOfImage, base };
+    bool resolved = pollogin::Resolve(view, L);
+    Log("POL layout: %s base=0x%08X size=0x%X timestamp=0x%08X, resolved in %llums",
+        uiName, (unsigned)base, mi.SizeOfImage, nt->FileHeader.TimeDateStamp,
+        GetTickCount64() - t0);
+    Log("  frames: member list vt+0x%X, Log In menu vt+0x%X, soft keyboard vt+0x%X, "
+        "member rows (CPolTable) vt+0x%X",
+        L.vtMemberList, L.vtSubCommand, L.vtSoftKeyboard, L.vtRowTable);
+    Log("  soft keyboard: listener at window+0x%X (vt+0x%X), handler +0x%X, OK apply +0x%X "
+        "notify +0x%X, password box [[[skw+0x%X]+0x%X]+0x%X] feed vt+0x%X",
+        L.softkeyListenerOff, L.vtSoftkeyListener, L.softkeyHandler, L.fnApply, L.fnNotify,
+        L.fieldChain[0], L.fieldChain[1], L.fieldChain[2], L.feedVtOff);
+    Log("  member list: select-row +0x%X (%d match%s)",
+        L.fnSelectRow, L.selectRowMatches, L.selectRowMatches == 1 ? "" : "es: using the first");
+    if (!resolved) {
+        Log("FAIL: POL layout not recognised: %s not found. This POL build needs a "
+            "Forest update.", L.missing);
+        WriteStatus("FAILED", "POL layout not recognised");
+        InterlockedExchange(&g_layoutState, -1);
+        return 0;
     }
 
-    Log("OK funcs: FUN_04647645=0x%08X (+0x%X)  FUN_04692bfc=0x%08X (+0x%X)",
-        (unsigned)g_fnApply, (unsigned)(g_fnApply - base),
-        (unsigned)g_fnBfc,   (unsigned)(g_fnBfc - base));
-    g_uiBase = base;
-
-    g_fnSelRow = (uintptr_t)ScanModule(ui, SIG_SELECT_ROW);
-    if (g_fnSelRow)
-        Log("select-row @ 0x%08X (%s+0x%X)", (unsigned)g_fnSelRow,
-            (const char*)g_uiModuleName, (unsigned)(g_fnSelRow - base));
-    else {
-        g_fnSelRow = base + 0x75102;
-        Log("WARN: select-row signature not found; fallback %s+0x75102.",
-            (const char*)g_uiModuleName);
-    }
+    g_layout   = L;
+    g_uiSize   = mi.SizeOfImage;
+    g_uiBase   = base;
+    g_fnApply  = base + L.fnApply;
+    g_fnBfc    = base + L.fnNotify;
+    g_fnSelRow = base + L.fnSelectRow;
+    g_rowVtbl  = (uint32_t)(base + L.vtRowTable);
+    InterlockedExchange(&g_layoutState, 1);
 
     g_veh = AddVectoredExceptionHandler(1, Veh);
     g_bp[2] = g_fnSelRow;
@@ -3717,6 +3829,13 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
             if (s > 0) { g_autoEnter = true; g_charSlot = s; g_settleMs = ms; }
         }
         {
+            char dr[MAX_PATH]; DllSibling(dr, MAX_PATH, "forest_dryrun.txt");
+            if (GetFileAttributesA(dr) != INVALID_FILE_ATTRIBUTES) {
+                g_dryRun = true;
+                g_hideEnabled = false;   // keep POL visible while it is observed
+            }
+        }
+        {
             char fl[MAX_PATH]; DllSibling(fl, MAX_PATH, "forest_fastlogin.txt");
             if (GetFileAttributesA(fl) != INVALID_FILE_ATTRIBUTES) {
                 InitializeCriticalSection(&g_flCs);
@@ -3734,7 +3853,6 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID)
         CloseHandle(CreateThread(nullptr, 0, EarlyStashThread, nullptr, 0, nullptr));
         CloseHandle(CreateThread(nullptr, 0, Worker, nullptr, 0, nullptr));
         CloseHandle(CreateThread(nullptr, 0, StateObserver, nullptr, 0, nullptr));
-        CloseHandle(CreateThread(nullptr, 0, FrameDiscoveryThread, nullptr, 0, nullptr));
         CloseHandle(CreateThread(nullptr, 0, FakeFocusInstallThread, nullptr, 0, nullptr));
     }
     return TRUE;
