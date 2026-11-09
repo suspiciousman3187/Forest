@@ -2,7 +2,13 @@
 
 setlocal EnableDelayedExpansion
 
-set VCVARS="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars32.bat"
+rem Locate any VS install (Community, Professional, Build Tools...) that has
+rem the x86/x64 C++ compiler, instead of assuming one edition's path.
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set "VSDIR="
+if exist "%VSWHERE%" for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSDIR=%%I"
+set VCVARS="%VSDIR%\VC\Auxiliary\Build\vcvars32.bat"
+if not defined VSDIR goto :no_vcvars
 if not exist %VCVARS% goto :no_vcvars
 call %VCVARS% >nul
 cd /d "%~dp0"
