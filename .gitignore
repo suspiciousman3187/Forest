@@ -43,3 +43,7 @@ POL-Proxy-main/
 *~
 *.bak
 Thumbs.db
+
+# --- native test and probe build output ----------------------------------
+trees/tests/out/
+trees/probe/out/
